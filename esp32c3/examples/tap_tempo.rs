@@ -30,7 +30,9 @@ mod app {
     };
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+        led_on : bool,
+    }
 
     #[local]
     struct Local {
@@ -61,26 +63,55 @@ mod app {
         let mut button = io.pins.gpio9.into_pull_up_input();
         button.listen(esp32c3_hal::gpio::Event::FallingEdge);
         led.set_low().unwrap();
+        let mut led_on = false;
 
-
+        //timer::spawn().unwrap();
         #[allow(unreachable_code)]
-        (Shared {}, Local { timer0, led, button })
+        (Shared {led_on}, Local { timer0, led, button })
     }
 
         // notice this is not an async task
-    #[idle(local = [ timer0 ])]
+    #[idle(local = [])]
         fn idle(cx: idle::Context) -> ! {
         loop {
-            rprintln!("Timer fired!!!");
-            // not async wait
-            nb::block!(cx.local.timer0.wait()).unwrap();
+        //    rprintln!("Timer fired!!!");
+        //    // not async wait
+        //    nb::block!(cx.local.timer0.wait()).unwrap();
         }
     }
 
-    #[task(binds = GPIO, local = [button, led])]
+    #[task(binds = GPIO, local = [button], priority = 3)]
     fn button(cx: button::Context) {
-        cx.local.led.toggle().unwrap();
         rprintln!("button press");
         cx.local.button.clear_interrupt();
+    }
+
+    #[task(local = [led], shared = [led_on], priority = 1)]
+    async fn blink(mut _cx: blink::Context) {
+        //_cx.local.led.toggle();
+        _cx.shared.led_on.lock(|led_on| {
+            if *led_on {
+                _cx.local.led.set_high().unwrap();
+            } else {
+                _cx.local.led.set_low().unwrap();
+            }
+        });
+    }
+
+    #[task(binds = TG0_T0_LEVEL,local = [timer0], shared = [led_on], priority = 2)]
+    fn timer(mut _cx: timer::Context) {
+        //loop {
+            rprintln!("Timer fired!!!");
+            _cx.shared.led_on.lock(|led_on| {
+                if *led_on == true {
+                    *led_on = false;
+                } else {
+                    *led_on = true;
+                }
+                //blink::spawn().unwrap();
+            });
+            // not async wait
+            //nb::block!(_cx.local.timer0.wait()).unwrap();
+        //}
     }
 }
