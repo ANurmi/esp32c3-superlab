@@ -56,7 +56,12 @@ mod app {
             &mut system.peripheral_clock_control,
         );
         let mut timer0 = timer_group0.timer0;
+        timer0.clear_interrupt();
+        //timer0.set_auto_reload(true);
         timer0.start(1u64.secs());
+        timer0.listen();
+        
+        
 
         let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
         let mut led = io.pins.gpio7.into_push_pull_output();
@@ -98,20 +103,17 @@ mod app {
         });
     }
 
-    #[task(binds = TG0_T0_LEVEL,local = [timer0], shared = [led_on], priority = 2)]
-    fn timer(mut _cx: timer::Context) {
-        //loop {
-            rprintln!("Timer fired!!!");
-            _cx.shared.led_on.lock(|led_on| {
-                if *led_on == true {
-                    *led_on = false;
-                } else {
-                    *led_on = true;
-                }
-                //blink::spawn().unwrap();
-            });
-            // not async wait
-            //nb::block!(_cx.local.timer0.wait()).unwrap();
-        //}
+    #[task(binds = TG0_T0_LEVEL, local = [timer0], shared = [led_on], priority = 2)]
+    fn timer(mut cx: timer::Context) {
+        rprintln!("Timer fired!!!");
+        cx.shared.led_on.lock(|led_on| {
+            if *led_on == true {
+                *led_on = false;
+            } else {
+                *led_on = true;
+            }
+        });
+        cx.local.timer0.clear_interrupt();
+        cx.local.timer0.set_alarm_active(true);
     }
 }
