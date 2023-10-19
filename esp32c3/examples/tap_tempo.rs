@@ -26,22 +26,19 @@ mod app {
         timer::{Timer, Timer0, TimerGroup},
         peripherals::{Peripherals, TIMG0},
         prelude::*,
+        systimer::SystemTimer,
         IO,
     };
     use rtic_monotonics::{
         self,
-        esp32c3_systimer::{ExtU64, Systimer, fugit::Instant},
-        Monotonic,
+        esp32c3_systimer::{ExtU64, Systimer},
     };
 
-    use shared::shift_register::{ShiftRegister, self};
-
-    //use ::{Duration, ExtU32};
+    use shared::shift_register::ShiftRegister;
     
 
     #[shared]
     struct Shared {
-        old_ticks : Instant<u64, 1, 16000000>,
         timer0 : Timer<Timer0<TIMG0>>, 
     }
 
@@ -49,8 +46,8 @@ mod app {
     struct Local {
         button: Gpio9<Input<PullUp>>,
         led: Gpio7<Output<PushPull>>,
-        shift_reg: ShiftRegister,    
-        shift_reg_count : u32,   
+        shift_reg: ShiftRegister,
+        old_ticks : u64,  
     }
 
     #[init]
@@ -73,12 +70,11 @@ mod app {
 
         let systimer_token = rtic_monotonics::create_systimer_token!();
         Systimer::start(cx.core.SYSTIMER, systimer_token);
-        
-        // It was empirically determined that Systimer::now() needs to be called 3 times in order for the System timer to actually function (sometimes). 
-        let mut old_ticks = Systimer::now();
-        old_ticks = Systimer::now();
-        old_ticks = Systimer::now();
-        rprintln!("Old ticks init value = {:?}", old_ticks.ticks());
+
+        let _syst = SystemTimer::new(peripherals.SYSTIMER);
+
+        let old_ticks = SystemTimer::now();
+        rprintln!("SystemTimer at init = {}", SystemTimer::now());
 
         // configure button on GPIO9 (interrupt) and LED on GPIO7
         let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
@@ -86,51 +82,49 @@ mod app {
         let mut button: esp32c3_hal::gpio::GpioPin<Input<PullUp>, 9> = io.pins.gpio9.into_pull_up_input();
         button.listen(esp32c3_hal::gpio::Event::FallingEdge);
 
-        let mut shift_reg = ShiftRegister{reg:[0;3]};
-
-        let mut shift_reg_count : u32 = 0;
+        let mut shift_reg = ShiftRegister::new();
 
         // initialise LED to low
         led.set_low().unwrap();
 
         #[allow(unreachable_code)]
-        (Shared {old_ticks, timer0} , Local {led, button, shift_reg, shift_reg_count})
+        (Shared {
+            timer0
+        } , Local {
+            led,
+            button, 
+            shift_reg,
+            old_ticks
+        })
     }
 
-        // notice this is not an async task
     #[idle(local = [])]
-        fn idle(cx: idle::Context) -> ! {
+        fn idle(_: idle::Context) -> ! {
         loop {
             // idle loop
         }
     }
 
     // button task to trigger whenever button is pressed. Updates led_switch to true whenever called
-    #[task(binds = GPIO, local = [button, shift_reg, shift_reg_count], shared = [old_ticks, timer0], priority = 2)]
+    #[task(binds = GPIO, local = [button, shift_reg, old_ticks], shared = [timer0], priority = 2)]
     fn button(mut cx: button::Context) {
 
-        let mut ticks_now : Instant<u64, 1, 16000000> = Systimer::now();
-        // Call this twice, otherwise timer does not update
-        // TODO: Why?
-        ticks_now = Systimer::now();
-
-        cx.shared.old_ticks.lock(|old_ticks| {
-            cx.local.shift_reg.insert(ticks_now.checked_duration_since(*old_ticks).unwrap().to_millis());
-            rprintln!("inserted {:?}ms into shift reg", ticks_now.checked_duration_since(*old_ticks).unwrap().to_millis());
-            
-            if *cx.local.shift_reg_count < 3 {
-                *cx.local.shift_reg_count = *cx.local.shift_reg_count + 1;
-            }
-            
-            if ticks_now == *old_ticks {
-                rprintln!("Error: Timer is acting funny!");
-            } 
-            
-            *old_ticks = ticks_now;
-
-        });
+        let new_ticks = SystemTimer::now();
+        // convert ticks to ms by div by 16,384 (approximately correct but more efficient than accurate division of 16,000)
+        // divide by two to ensure on -> off is written to shift reg
+        let duration_ms = ((new_ticks - *cx.local.old_ticks) >> 14) >> 1;
         
-        if *cx.local.shift_reg_count >= 3 {
+
+        cx.local.shift_reg.insert(duration_ms);
+        rprintln!("inserted {:?}ms into shift reg", duration_ms);
+        
+        if new_ticks == *cx.local.old_ticks {
+            rprintln!("Error: Timer is acting funny!");
+        } 
+        
+        *cx.local.old_ticks = new_ticks;
+
+        if cx.local.shift_reg.valid_entries() {
           cx.shared.timer0.lock(|timer0| {
               timer0.unlisten();
               timer0.reset_counter();

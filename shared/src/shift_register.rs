@@ -1,18 +1,35 @@
 #[derive(PartialEq)]
 pub struct ShiftRegister {
-    pub reg : [u64;3],
+    reg : [u64;5],
+    entries : u32,
+
 }
 
 impl ShiftRegister {
 
+    pub fn new() -> Self {
+        ShiftRegister { reg: [0;5], entries: 0u32 }
+    }
+
     pub fn insert(&mut self, val: u64) {
-        for idx in 1..2 {
+        for idx in 1..(self.reg.len()-1) {
             self.reg[idx] = self.reg[idx-1]; 
         }
-        self.reg[0] = val
+
+        self.reg[0] = val;
+
+        if self.entries < self.reg.len() as u32 {
+            self.entries = self.entries + 1;
+        }
     }
+    
     pub fn avg(&mut self) -> u64 {
-        self.reg.iter().sum::<u64>()/3
+        self.reg.iter().sum::<u64>()/(self.reg.len() as u64)
+    }
+
+    // report if shift register has been fully populated
+    pub fn valid_entries(&self) -> bool {
+        self.entries >= self.reg.len() as u32
     }
 
     /// Don't use this. It's for testing :-)
@@ -23,7 +40,7 @@ impl ShiftRegister {
 
 #[test]
 fn insert_works() {
-    let mut sr = ShiftRegister{reg:[0;3]};
+    let mut sr = ShiftRegister::new();
 
     sr.insert(1);
     assert_eq!(sr.as_array(), &[Some(1), None, None]);
@@ -39,7 +56,7 @@ fn insert_works() {
 }
 
 fn avg_works() {
-    let mut sr = ShiftRegister{reg:[0;3]};
+    let mut sr = ShiftRegister::new();
 
     sr.insert(1);
     sr.insert(2);
