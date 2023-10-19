@@ -24,70 +24,37 @@ mod app {
         gpio::{Gpio9, Input, PullUp},
         gpio::{Gpio7, Output, PushPull},
         timer::{Timer, Timer0, TimerGroup},
-        peripherals::{Peripherals, TIMG0, TIMG1},
+        peripherals::{Peripherals, TIMG0},
         prelude::*,
         IO,
     };
-    // struct to contain RTC information used for global counter
-    pub struct RTC {
-        millis : u64,
-        secs : u64,
-        mins : u64, 
-        hours : u64,
-    }
+    use rtic_monotonics::{
+        self,
+        esp32c3_systimer::{ExtU64, Systimer, fugit::Instant},
+        Monotonic,
+    };
 
-    // methods to access global clock information
-    impl RTC {
-        pub fn get_time_millis(&self) -> u64 {
-            self.millis + (1000*self.secs) + (60 * 1000 * self.mins) + (60* 60 * 1000 * self.hours)
-        }
-        pub fn print_time(&self) -> () {
-            rprintln!("{:02}:{:02}:{:02}.{:03}", self.hours, self.mins, self.secs, self.millis);
-        }
-        pub fn increment_millis(&mut self, incr : u64) -> () {
-            self.millis = self.millis + incr;
-            if self.millis >= 1000 {
-                self.millis = self.millis - 1000;
-                if self.secs == 59 {
-                    self.secs = 0;
-                    if self.mins == 59 {
-                        self.mins = 0;
-                        self.hours = self.hours + 1;
-                    } else {
-                        self.mins = self.mins + 1;
-                    }
-                } else {
-                    self.secs = self.secs + 1;
-                }
-            }
-        }
-        pub fn reset(&mut self) -> () {
-            self.millis = 0;
-            self.secs = 0;
-            self.mins = 0;
-            self.hours = 0;
-        }
-    }
+    use shared::shift_register::{ShiftRegister, self};
 
-    const TIMER_UPDATE_PERIOD_MS : u64 = 10;
+    //use ::{Duration, ExtU32};
+    
 
     #[shared]
     struct Shared {
-        led_switch : bool,
-        global_time : RTC,
+        old_ticks : Instant<u64, 1, 16000000>,
+        timer0 : Timer<Timer0<TIMG0>>, 
     }
 
     #[local]
     struct Local {
-        timer0: Timer<Timer0<TIMG0>>,
-        led: Gpio7<Output<PushPull>>,
         button: Gpio9<Input<PullUp>>,
-        timer1: Timer<Timer0<TIMG1>>,
-        led_period_millis: u64,        
+        led: Gpio7<Output<PushPull>>,
+        shift_reg: ShiftRegister,    
+        shift_reg_count : u32,   
     }
 
     #[init]
-    fn init(_: init::Context) -> (Shared, Local) {
+    fn init(cx: init::Context) -> (Shared, Local) {
         rtt_init_print!();
         rprintln!(env!("CARGO_CRATE_NAME"));
 
@@ -103,37 +70,31 @@ mod app {
         );
         let mut timer0 = timer_group0.timer0;
         timer0.clear_interrupt();
-        timer0.start(TIMER_UPDATE_PERIOD_MS.millis());
-        timer0.listen();       
 
-        // configure TIMG1 to be used for LED clock
-        let timer_group1 = TimerGroup::new(
-            peripherals.TIMG1,
-            &clocks,
-            &mut system.peripheral_clock_control,
-        ); 
-        let mut led_period_millis : u64 = 500;
-        let mut timer1 = timer_group1.timer0; 
-        timer1.clear_interrupt();
-        timer1.start(led_period_millis.millis());
-        timer1.listen(); 
+        let systimer_token = rtic_monotonics::create_systimer_token!();
+        Systimer::start(cx.core.SYSTIMER, systimer_token);
         
+        // It was empirically determined that Systimer::now() needs to be called 3 times in order for the System timer to actually function (sometimes). 
+        let mut old_ticks = Systimer::now();
+        old_ticks = Systimer::now();
+        old_ticks = Systimer::now();
+        rprintln!("Old ticks init value = {:?}", old_ticks.ticks());
+
         // configure button on GPIO9 (interrupt) and LED on GPIO7
         let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
         let mut led = io.pins.gpio7.into_push_pull_output();
-        let mut button = io.pins.gpio9.into_pull_up_input();
+        let mut button: esp32c3_hal::gpio::GpioPin<Input<PullUp>, 9> = io.pins.gpio9.into_pull_up_input();
         button.listen(esp32c3_hal::gpio::Event::FallingEdge);
+
+        let mut shift_reg = ShiftRegister{reg:[0;3]};
+
+        let mut shift_reg_count : u32 = 0;
 
         // initialise LED to low
         led.set_low().unwrap();
 
-        // switch to control LED rate
-        let mut led_switch = false;
-        // instance of RTC to be used for global clock
-        let mut global_time = RTC {millis : 0, secs : 0, mins : 0, hours : 0};
-
         #[allow(unreachable_code)]
-        (Shared {led_switch, global_time}, Local { timer0, timer1, led, button, led_period_millis})
+        (Shared {old_ticks, timer0} , Local {led, button, shift_reg, shift_reg_count})
     }
 
         // notice this is not an async task
@@ -145,52 +106,55 @@ mod app {
     }
 
     // button task to trigger whenever button is pressed. Updates led_switch to true whenever called
-    #[task(binds = GPIO, local = [button], shared = [global_time, led_switch], priority = 3)]
+    #[task(binds = GPIO, local = [button, shift_reg, shift_reg_count], shared = [old_ticks, timer0], priority = 2)]
     fn button(mut cx: button::Context) {
-        rprintln!("button pressed at:");
-        cx.shared.global_time.lock(|global_time| {
-            global_time.print_time();
-        }); 
-        cx.shared.led_switch.lock(|led_switch| {
-            *led_switch = true; 
+
+        let mut ticks_now : Instant<u64, 1, 16000000> = Systimer::now();
+        // Call this twice, otherwise timer does not update
+        // TODO: Why?
+        ticks_now = Systimer::now();
+
+        cx.shared.old_ticks.lock(|old_ticks| {
+            cx.local.shift_reg.insert(ticks_now.checked_duration_since(*old_ticks).unwrap().to_millis());
+            rprintln!("inserted {:?}ms into shift reg", ticks_now.checked_duration_since(*old_ticks).unwrap().to_millis());
+            
+            if *cx.local.shift_reg_count < 3 {
+                *cx.local.shift_reg_count = *cx.local.shift_reg_count + 1;
+            }
+            
+            if ticks_now == *old_ticks {
+                rprintln!("Error: Timer is acting funny!");
+            } 
+            
+            *old_ticks = ticks_now;
+
         });
+        
+        if *cx.local.shift_reg_count >= 3 {
+          cx.shared.timer0.lock(|timer0| {
+              timer0.unlisten();
+              timer0.reset_counter();
+              timer0.start(cx.local.shift_reg.avg().millis());
+              rprintln!("Average value is: {}ms", cx.local.shift_reg.avg());
+              timer0.listen();
+          });
+        }
+        
         cx.local.button.clear_interrupt();
     }
 
-    // led blinking task, currently blinks at a rate determined by led_period_millis. If led_switch is set (modified in button task),
-    // it updates the frequency of blinking
-    #[task(binds = TG1_T0_LEVEL, local = [led, timer1, led_period_millis], shared = [led_switch], priority = 1)]
+    // led blinking task
+    #[task(binds = TG0_T0_LEVEL, local = [led], shared = [timer0], priority = 1)]
     fn blink(mut cx: blink::Context) {
+
         if cx.local.led.is_set_high().unwrap() {
             cx.local.led.set_low().unwrap();
         } else {
             cx.local.led.set_high().unwrap();
         }
-
-        cx.shared.led_switch.lock(|led_switch| {
-            if *led_switch == true {
-                if *cx.local.led_period_millis == 500 {
-                    *cx.local.led_period_millis = 250;
-                } else {
-                    *cx.local.led_period_millis = 500;
-                }
-                // set_alarm_active is implicitly called within start(), so no need to call it explicitly here
-                cx.local.timer1.start(cx.local.led_period_millis.millis());
-                *led_switch = false;
-            } else {                
-                cx.local.timer1.set_alarm_active(true);
-            }
+        cx.shared.timer0.lock(|timer0| {
+            timer0.clear_interrupt();
+            timer0.set_alarm_active(true);
         });
-        cx.local.timer1.clear_interrupt();
-    }
-
-    // global timer task to be scheduled periodically whenever TIMER_UPDATE_PERIOD_MS has elapsed
-    #[task(binds = TG0_T0_LEVEL, local = [timer0], shared = [global_time], priority = 2)]
-    fn timer(mut cx: timer::Context) {
-        cx.shared.global_time.lock(|global_time| {
-            global_time.increment_millis(TIMER_UPDATE_PERIOD_MS);
-        }); 
-        cx.local.timer0.clear_interrupt();
-        cx.local.timer0.set_alarm_active(true);
     }
 }

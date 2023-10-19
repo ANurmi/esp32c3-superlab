@@ -1,12 +1,18 @@
 #[derive(PartialEq)]
-pub struct ShiftRegister;
+pub struct ShiftRegister {
+    pub reg : [u64;3],
+}
 
 impl ShiftRegister {
-    pub fn insert(&self, val: u64) {
-        todo!()
+
+    pub fn insert(&mut self, val: u64) {
+        for idx in 1..2 {
+            self.reg[idx] = self.reg[idx-1]; 
+        }
+        self.reg[0] = val
     }
-    pub fn avg(&self) -> u64 {
-        todo!()
+    pub fn avg(&mut self) -> u64 {
+        self.reg.iter().sum::<u64>()/3
     }
 
     /// Don't use this. It's for testing :-)
@@ -17,7 +23,7 @@ impl ShiftRegister {
 
 #[test]
 fn insert_works() {
-    let mut sr = ShiftRegister;
+    let mut sr = ShiftRegister{reg:[0;3]};
 
     sr.insert(1);
     assert_eq!(sr.as_array(), &[Some(1), None, None]);
@@ -33,7 +39,7 @@ fn insert_works() {
 }
 
 fn avg_works() {
-    let sr = ShiftRegister;
+    let mut sr = ShiftRegister{reg:[0;3]};
 
     sr.insert(1);
     sr.insert(2);
