@@ -82,7 +82,7 @@ mod app {
         let mut button: esp32c3_hal::gpio::GpioPin<Input<PullUp>, 9> = io.pins.gpio9.into_pull_up_input();
         button.listen(esp32c3_hal::gpio::Event::FallingEdge);
 
-        let mut shift_reg = ShiftRegister::new();
+        let shift_reg = ShiftRegister::new();
 
         // initialise LED to low
         led.set_low().unwrap();
