@@ -23,7 +23,7 @@ mod app {
         clock::ClockControl,
         gpio::{Gpio9, Input, PullUp},
         gpio::{Gpio7, Output, PushPull},
-        timer::{Timer, Timer0, TimerGroup},
+        timer::{Timer, Wdt, Timer0, TimerGroup},
         peripherals::{Peripherals, TIMG0},
         prelude::*,
         systimer::SystemTimer,
@@ -47,7 +47,8 @@ mod app {
         button: Gpio9<Input<PullUp>>,
         led: Gpio7<Output<PushPull>>,
         shift_reg: ShiftRegister,
-        old_ticks : u64,  
+        old_ticks: u64,
+        wdt0: Wdt<TIMG0>,
     }
 
     #[init]
@@ -57,7 +58,7 @@ mod app {
 
         let peripherals = Peripherals::take();
         let mut system = peripherals.SYSTEM.split();
-        let clocks = ClockControl::max(system.clock_control).freeze();
+        let clocks = ClockControl::max(system.clock_control).freeze(); 
 
         // configure TIMG0 to be used for global clock
         let timer_group0 = TimerGroup::new(
@@ -66,7 +67,10 @@ mod app {
             &mut system.peripheral_clock_control,
         );
         let mut timer0 = timer_group0.timer0;
+        let mut wdt0 = timer_group0.wdt;
         timer0.clear_interrupt();
+
+        wdt0.start(10u64.secs());
 
         let systimer_token = rtic_monotonics::create_systimer_token!();
         Systimer::start(cx.core.SYSTIMER, systimer_token);
@@ -74,7 +78,6 @@ mod app {
         let _syst = SystemTimer::new(peripherals.SYSTIMER);
 
         let old_ticks = SystemTimer::now();
-        rprintln!("SystemTimer at init = {}", SystemTimer::now());
 
         // configure button on GPIO9 (interrupt) and LED on GPIO7
         let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
@@ -87,6 +90,8 @@ mod app {
         // initialise LED to low
         led.set_low().unwrap();
 
+        rprintln!("Init Called!");
+
         #[allow(unreachable_code)]
         (Shared {
             timer0
@@ -94,7 +99,8 @@ mod app {
             led,
             button, 
             shift_reg,
-            old_ticks
+            old_ticks,
+            wdt0,
         })
     }
 
@@ -106,8 +112,12 @@ mod app {
     }
 
     // button task to trigger whenever button is pressed. Updates led_switch to true whenever called
-    #[task(binds = GPIO, local = [button, shift_reg, old_ticks], shared = [timer0], priority = 2)]
+    #[task(binds = GPIO, local = [button, shift_reg, old_ticks, wdt0], shared = [timer0], priority = 2)]
     fn button(mut cx: button::Context) {
+
+        rprintln!("Feeding Watchdog!");
+        // feed the watchdog
+        cx.local.wdt0.feed();
 
         let new_ticks = SystemTimer::now();
         // convert ticks to ms by div by 16,384 (approximately correct but more efficient than accurate division of 16,000)
