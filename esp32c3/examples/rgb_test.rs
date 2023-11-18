@@ -11,7 +11,7 @@
 #![no_std]
 #![no_main]
 
-use esp32c3_hal::{clock::ClockControl, peripherals, prelude::*, rmt::Rmt, Delay, IO};
+use esp32c3_hal::{clock::ClockControl, peripherals, prelude::*, rmt::Rmt, Delay, IO, Rtc};
 //use esp_backtrace as _;
 use esp_hal_smartled::{smartLedAdapter, SmartLedsAdapter};
 use panic_rtt_target as _;
@@ -31,6 +31,7 @@ fn main() -> ! {
     let clocks = ClockControl::max(system.clock_control).freeze();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let rtc = Rtc::new(peripherals.RTC_CNTL);
 
     // Configure RMT peripheral globally
     let rmt = Rmt::new(
@@ -48,6 +49,17 @@ fn main() -> ! {
     // Initialize the Delay peripheral, and use it to toggle the LED state in a
     // loop.
     let mut delay = Delay::new(&clocks);
+
+    let mut delay_val: u32 = 400;
+
+    let mut led_on: bool = false;
+
+    // for debug purposes use minutes vs hours
+    let dawn_start_sec    = 3*60 ;//*60;
+    let noon_start_sec    = 9*60 ;//*60;
+    let evening_start_sec = 15*60;//*60;
+    let night_start_sec   = 21*60;//*60;
+
 
     let mut color = Hsv {
         hue: 0,
@@ -85,21 +97,36 @@ fn main() -> ! {
         val: 240, // should be 48
     };
 
+    let led_off = Hsv {
+        hue: 0,
+        sat: 0,
+        val: 0,
+    };
+
     let mut data;
 
     loop {
         // Iterate over the rainbow!
-        for hour in 0..=23 {
-            if hour >= 3 && hour < 9 {
+        //for hour in 0..=23 {
+            let time_sec = rtc.get_time_ms() / 1000;
+            if  time_sec >= dawn_start_sec && 
+                time_sec <  noon_start_sec {
                 color = dawn;
-            } else if hour >= 9 && hour < 15 {
+            } else if   time_sec >= noon_start_sec && 
+                        time_sec < evening_start_sec {
                 color = noon;
-            } else if hour >= 15 && hour < 21 {
+            } else if   time_sec >= evening_start_sec && 
+                        time_sec < night_start_sec {
                 color = evening;
             } else {
                 color = night;
             }
-            rprintln!("hour:{}", hour);
+
+            if !led_on {
+                color = led_off;
+            }
+
+            rprintln!("time (seconds):{}", time_sec);
             // Convert from the HSV color space (where we can easily transition from one
             // color to the other) to the RGB color space that we can then send to the LED
             data = [hsv2rgb(color)];
@@ -108,7 +135,9 @@ fn main() -> ! {
             // that the output it's not too bright.
             led.write(brightness(gamma(data.iter().cloned()), 10))
                 .unwrap();
-            delay.delay_ms(500u16);
-        }
+            //rprintln!("rtc time {}", rtc.get_time_ms()/1024);
+            led_on = !led_on;
+            delay.delay_ms(delay_val);
+        //}
     }
 }
