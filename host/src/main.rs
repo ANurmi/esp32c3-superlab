@@ -54,6 +54,8 @@ fn request(
     let to_write = serialize_crc_cobs(cmd, out_buf);
     port.write_all(to_write)?;
 
+    println!("{:?}", to_write);
+
     let mut index: usize = 0;
     loop {
         let slice = &mut in_buf[index..index + 1];
