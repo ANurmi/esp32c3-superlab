@@ -65,3 +65,15 @@ where
     assert_eq! {crc, pkg_crc};
     Ok(t)
 }
+
+pub fn decode_command(
+    in_buf: &mut [u8],
+) -> Result<Command, ()> {
+    let n = corncobs::decode_in_place(in_buf).unwrap();
+    let (cmd, cmd_used) = ssmarshal::deserialize::<Command>(&in_buf[0..n]).unwrap();
+    let crc_buf = &in_buf[cmd_used..];
+    let (crc, _crc_used) = ssmarshal::deserialize::<u32>(crc_buf).unwrap();
+    let pkg_crc = CKSUM.checksum(&in_buf[0..cmd_used]);
+    assert_eq! {crc, pkg_crc};
+    Ok(cmd)
+}

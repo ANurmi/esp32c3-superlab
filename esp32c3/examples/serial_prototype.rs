@@ -116,7 +116,7 @@ mod app {
         let rx_buff : InBuf = [0; IN_SIZE];
         let rx_idx  : usize = 0;
 
-        lowprio::spawn(receiver).unwrap();
+        uart_tx::spawn(receiver).unwrap();
 
         (
             Shared {},
@@ -151,8 +151,6 @@ mod app {
         let rx_idx = cx.local.rx_idx;
         
 
-        //rprintln!("Interrupt Received: ");
-
         while let nb::Result::Ok(c) = rx.read() {
 
             rx_buff[*rx_idx] = c;
@@ -163,14 +161,32 @@ mod app {
               
               *rx_idx = 0;
 
-              let cmd = decode_command(rx_buff);
+              let cmd = decode_command(rx_buff).unwrap();
 
               match &cmd {
+
                 Command::Set(id, msg, devid) => {
-                  rprintln!("Received Set({},msg,{})", id, devid);
+
+                  match &msg {
+                    Message::A => {
+                      rprintln!("Received Set({},msgA,{})", id, devid);
+                    },
+                    Message::B(int_val) => {
+                      rprintln!("Received Set({},{},{})", id, int_val, devid);
+                    },
+                    Message::C(float_val) => {
+                      rprintln!("Received Set({},{},{})", id, float_val, devid);
+                    },
+                    _ => {
+                      rprintln!("[ERROR] - Set Message format not recognised!");
+                    },
+                  };
                 },
                 Command::Get(id, param, devid) => {
                   rprintln!("Received Get({},{},{})", id, param, devid);
+                },
+                _ => {
+                  rprintln!("[ERROR] - Received cmd not recognised!");
                 },
               };
 
@@ -191,9 +207,9 @@ mod app {
     }
 
     #[task(priority = 1, local = [ tx ])]
-    async fn lowprio(cx: lowprio::Context, mut receiver: Receiver<'static, Response, CAPACITY>) {
+    async fn uart_tx(cx: uart_tx::Context, mut receiver: Receiver<'static, Response, CAPACITY>) {
         
-        rprintln!("LowPrio started");
+        rprintln!("uart_tx started");
         let tx = cx.local.tx;
 
         while let Ok(c) = receiver.recv().await {
