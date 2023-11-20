@@ -174,9 +174,12 @@ mod app {
                     Message::B(int_val) => {
                       rprintln!("Received Set({},{},{})", id, int_val, devid);
                     },
-                    Message::C(float_val) => {
-                      rprintln!("Received Set({},{},{})", id, float_val, devid);
+                    Message::C(duration_secs, freq_hz) => {
+                      rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
                     },
+                    Message::D(udt, duration_secs, freq_hz) => {
+                      rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
+                    }
                     _ => {
                       rprintln!("[ERROR] - Set Message format not recognised!");
                     },

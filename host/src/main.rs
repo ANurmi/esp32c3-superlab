@@ -18,7 +18,7 @@ use serial2::SerialPort;
 
 // Application dependencies
 use host::open;
-use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response}; // local library
+use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response, date_time::UtcDateTime}; // local library
 
 const CMD_TIMEOUT_SECS : Duration = Duration::from_secs(2); 
 
@@ -40,11 +40,31 @@ fn main() -> Result<(), std::io::Error> {
     let mut out_buf = [0u8; OUT_SIZE];
     let mut in_buf = [0u8; IN_SIZE];
 
+    let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 20, hour: 12, minute: 24, second: 36, nanoseconds: 48 };    
+
+    let cmd = Command::Set(0x12, Message::A(udt), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);
+
     let cmd = Command::Set(0x12, Message::B(12), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
 
+    let cmd = Command::Set(0x12, Message::C(20000, 32768), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);
+
+    let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 20, hour: 12, minute: 24, second: 36, nanoseconds: 48 };    
+
+    let cmd = Command::Set(0x12, Message::D(udt, 20000, 32768), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);
+
+    // currently no use for get
     let cmd = Command::Get(0x12, 12, 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;

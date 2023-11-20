@@ -23,7 +23,8 @@ pub enum Command {
 pub enum Message {
     A(UtcDateTime),
     B(u32),
-    C(f32), // we might consider "f16" but not sure it plays well with `ssmarshal`
+    C(u32, u32), // we might consider "f16" but not sure it plays well with `ssmarshal`
+    D(UtcDateTime, u32, u32),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
