@@ -3,6 +3,7 @@
 pub mod date_time;
 pub mod shift_register;
 
+use date_time::UtcDateTime;
 use serde_derive::{Deserialize, Serialize};
 
 // we could use new-type pattern here but let's keep it simple
@@ -20,7 +21,7 @@ pub enum Command {
 #[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub enum Message {
-    A,
+    A(UtcDateTime),
     B(u32),
     C(f32), // we might consider "f16" but not sure it plays well with `ssmarshal`
 }

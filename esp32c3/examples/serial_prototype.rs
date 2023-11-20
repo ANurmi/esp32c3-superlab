@@ -44,7 +44,7 @@ mod app {
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
-    use shared::{deserialize_crc_cobs, serialize_crc_cobs, decode_command, Command, Message, Response}; // local library
+    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
     const OUT_SIZE: usize = max_encoded_len(size_of::<Response>() + size_of::<u32>());
@@ -168,8 +168,8 @@ mod app {
                 Command::Set(id, msg, devid) => {
 
                   match &msg {
-                    Message::A => {
-                      rprintln!("Received Set({},msgA,{})", id, devid);
+                    Message::A(udt) => {
+                      rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
                     },
                     Message::B(int_val) => {
                       rprintln!("Received Set({},{},{})", id, int_val, devid);
