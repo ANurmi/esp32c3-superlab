@@ -202,13 +202,16 @@ mod app {
               
               match cmd_res {
 
+                // extract command if no errors were identified during the deserialise process
                 Ok(cmd) => {
 
                   match cmd {
 
                     Command::Set(id, msg, devid) => {
-    
-                      match &msg {
+                      
+                      // 
+                      match msg {
+
                         Message::A(udt) => {
                           rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
                           let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
@@ -230,14 +233,18 @@ mod app {
                         }
                         _ => {
                           rprintln!("[ERROR] - Set Message format not recognised!");
+                          rsp = Response::Illegal;
                         },
                       };
                     },
+
                     Command::Get(id, param, devid) => {
                       rprintln!("Received Get({},{},{})", id, param, devid);
                     },
+
                   };
                 },
+                // Use the error reported in the serialise process to determine how to respond
                 Err(fault) => {
     
                   match fault {
@@ -293,6 +300,9 @@ mod app {
               },
               Response::NotOK => {
                 rprint!("Sending Response::NotOK");
+              },
+              Response::Illegal => {
+                rprint!("Sending Response::Illegal");
               },
             }
 

@@ -34,6 +34,7 @@ pub enum Response {
     SetOk,
     ParseError,
     NotOK,
+    Illegal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,5 +76,6 @@ where
     if crc != pkg_crc {
         return Err(Faults::BitFlipData);
     }
+
     Ok(t)
 }
