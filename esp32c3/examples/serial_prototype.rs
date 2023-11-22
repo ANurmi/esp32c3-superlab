@@ -23,13 +23,17 @@ use panic_rtt_target as _;
 // bring in panic handler
 use panic_rtt_target as _;
 
+
+
 #[rtic::app(device = esp32c3, dispatchers = [FROM_CPU_INTR0, FROM_CPU_INTR1])]
 mod app {
     use esp32c3_hal::{
+        rmt::Rmt,
         clock::ClockControl,
         peripherals::{Peripherals, TIMG0, TIMG1, UART0},
         prelude::*,
         timer::{Timer, Timer0, TimerGroup},
+        gpio::{Gpio7, Output, PushPull},
         uart::{
             config::{Config, DataBits, Parity, StopBits},
             TxRxPins, UartRx, UartTx,
@@ -38,8 +42,24 @@ mod app {
         Uart, IO,
     };
 
+    pub struct BlinkLedConfig {
+        blink_start_time : i64,
+        blink_end_time : i64,
+        blink_frequency : u32,
+        active : bool,
+    }
+
     use rtic_sync::{channel::*, make_channel};
     use rtt_target::{rprint, rprintln, rtt_init_print};
+
+    use smart_leds::{
+        brightness, gamma,
+        RGB,
+        SmartLedsWrite,
+    };
+
+    use esp_hal_smartled::{smartLedAdapter, SmartLedsAdapter};
+
 
     use core::mem::size_of;
 
@@ -50,7 +70,7 @@ mod app {
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
-    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
+    use shared::{serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
     const OUT_SIZE: usize = max_encoded_len(size_of::<Response>() + size_of::<u32>());
@@ -63,11 +83,16 @@ mod app {
     #[shared]
     struct Shared {
       epoch_millis : i64,
+      blink_led_config : BlinkLedConfig,
+      tg0_timer0 : Timer<Timer0<TIMG0>>,
+      blink_led: Gpio7<Output<PushPull>>,
+      color_led : SmartLedsAdapter<esp32c3_hal::rmt::Channel0<0>, 0, 25>,
+      color_led_active : bool,
     }
 
     #[local]
     struct Local {
-        tg1_timer0 : Timer<Timer0<TIMG1>>, 
+        tg1_timer0 : Timer<Timer0<TIMG1>>,
         previous_rtc_timestamp : u64,
         rtc : Rtc<'static>,
         tx: UartTx<'static, UART0>,
@@ -76,6 +101,8 @@ mod app {
         rx_buff: InBuf,
         rx_idx: usize,
     }
+
+    
     #[init]
     fn init(_: init::Context) -> (Shared, Local) {
         rtt_init_print!();
@@ -91,7 +118,7 @@ mod app {
             &clocks,
             &mut system.peripheral_clock_control,
         );
-        let mut timer0 = timer_group0.timer0;
+        let mut tg0_timer0 = timer_group0.timer0;
 
         let timer_group1 = TimerGroup::new(
           peripherals.TIMG1,
@@ -99,7 +126,7 @@ mod app {
           &mut system.peripheral_clock_control,
         );
         let mut tg1_timer0 = timer_group1.timer0;
-        timer0.clear_interrupt();
+        tg0_timer0.clear_interrupt();
         tg1_timer0.clear_interrupt();
 
         let config = Config {
@@ -128,8 +155,8 @@ mod app {
         uart0.set_rx_fifo_full_threshold(1).unwrap();
         uart0.listen_rx_fifo_full();
 
-        timer0.start(1u64.secs());
         tg1_timer0.start(1u64.secs());
+        tg0_timer0.start(1u64.secs());
 
         let (tx, rx) = uart0.split();
 
@@ -138,22 +165,46 @@ mod app {
 
         let rtc = Rtc::new(peripherals.RTC_CNTL);
         
-
-        // SET THIS WITH UART
-        let datetime = Utc.ymd(2023, 1, 1).and_hms(0, 0, 0);
+        let datetime = Utc.ymd(2023, 1, 1).and_hms(17, 0, 0);
           
         let epoch_millis = datetime.timestamp_millis();
 
         let previous_rtc_timestamp = rtc.get_time_ms();
 
+        let blink_led_config = BlinkLedConfig {
+            blink_start_time: epoch_millis + 1000,
+            blink_end_time: epoch_millis + 10000,
+            blink_frequency: 300,
+            active : false,
+        };
+
 
         uart_tx::spawn(receiver).unwrap();
 
+        let mut blink_led = io.pins.gpio7.into_push_pull_output();
+
+        blink_led.set_low().unwrap();
+
         tg1_timer0.listen();
 
+        let rmt = Rmt::new(
+            peripherals.RMT,
+            80u32.MHz(),
+            &mut system.peripheral_clock_control,
+            &clocks,
+        )
+        .unwrap();
+
+        let color_led: SmartLedsAdapter<esp32c3_hal::rmt::Channel0<0>, 0, 25> = <smartLedAdapter!(0, 1)>::new(rmt.channel0, io.pins.gpio2);
+        let color_led_active = true;
         (
             Shared {
               epoch_millis,
+              blink_led_config,
+              tg0_timer0,
+              blink_led,
+              color_led,
+              color_led_active,
             },
             Local {
               tg1_timer0,
@@ -280,7 +331,39 @@ mod app {
         }
     }
 
-    #[task(binds = TG1_T0_LEVEL, local = [tg1_timer0, rtc, previous_rtc_timestamp], shared = [epoch_millis], priority = 2)]
+    fn get_led_color(epoch_millis : i64) -> RGB<u8> {
+        let dt = Utc.timestamp(epoch_millis/1000, 0);
+        let hours = dt.hour();
+        if hours >= 3 && hours < 9 {
+            return RGB {r: 0xF8, g: 0xF3, b: 0x2B};
+        } else if hours >= 9 && hours < 15 {
+            return RGB {r: 0x9C, g: 0xFF, b: 0xFA};
+        } else if hours >= 15 && hours < 21 {
+            return RGB {r: 0x05, g: 0x3C, b: 0x5E};
+        }
+        return RGB {r: 0x31, g: 0x08, b: 0x1F};
+    }
+
+    // led blinking task
+    #[task(binds = TG0_T0_LEVEL, shared = [tg0_timer0, blink_led], priority = 1)]
+    fn blink(mut cx: blink::Context) {
+        cx.shared.blink_led.lock(|led| {
+            if led.is_set_high().unwrap() {
+                led.set_low().unwrap();
+            } else {
+                led.set_high().unwrap();
+            }
+        });
+        cx.shared.tg0_timer0.lock(|tg0_timer0| {
+            tg0_timer0.clear_interrupt();
+            tg0_timer0.set_alarm_active(true);
+            tg0_timer0.listen();
+        });
+    }
+
+    // We should not pre-empt this so that the wide time stamps are correct.
+    #[task(binds = TG1_T0_LEVEL, local = [tg1_timer0, rtc, previous_rtc_timestamp],
+        shared = [epoch_millis, blink_led_config, tg0_timer0, blink_led, color_led, color_led_active], priority = 2)]
     fn advance_time(mut cx: advance_time::Context) {
     
         let new_time : u64 = cx.local.rtc.get_time_ms();
@@ -290,16 +373,60 @@ mod app {
         // Create a time stamp for this interrupt.
         *cx.local.previous_rtc_timestamp = new_time;
 
-        // TODO: can we get this in seconds somewhere?
         let mut timestamp : i64 = 0;
         cx.shared.epoch_millis.lock(|epoch_millis| {
             *epoch_millis = *epoch_millis + (millis_passed as i64);
             timestamp = *epoch_millis;
         });
-        rprintln!("epoch in ms is {}", timestamp);
+        //rprintln!("epoch in ms is {}", timestamp);
 
         let dt = Utc.timestamp(timestamp/1000, 0);
-        rprintln!("{}-{}-{} {}:{}:{}", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
+        rprintln!("[{}-{:02}-{:02} {:02}:{:02}:{:02}]", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
+
+        // Check led config, separate this to its own func.
+        
+        cx.shared.blink_led_config.lock(|config| {
+            if timestamp > config.blink_end_time && config.active {
+                config.active = false;
+                rprintln!("Ending blinking");
+                cx.shared.tg0_timer0.lock(|tg0_timer0| {
+                    tg0_timer0.clear_interrupt();
+                    tg0_timer0.set_alarm_active(false);
+                    tg0_timer0.unlisten();
+                });
+                cx.shared.blink_led.lock(|led| {
+                    led.set_low().unwrap();
+                });
+            } else if timestamp > config.blink_start_time && timestamp < config.blink_end_time  && !config.active {
+                rprintln!("Starting blinking");
+                config.active = true;
+                cx.shared.tg0_timer0.lock(|tg0_timer0: &mut Timer<Timer0<TIMG0>>| {
+                    tg0_timer0.start(config.blink_frequency.millis());
+                    tg0_timer0.clear_interrupt();
+                    tg0_timer0.set_alarm_active(true);
+                    tg0_timer0.listen();
+                });
+            }
+        });
+
+        // TODO: clean this mess up
+
+        let mut color = RGB{r: 0, g: 0, b: 0};
+        cx.shared.color_led_active.lock(|active| {
+            if *active {
+                color = get_led_color(timestamp);
+                let data = [color;1];
+                cx.shared.color_led.lock(|color_led| {
+                    color_led.write(brightness([color].iter().cloned(), 10))
+                    .unwrap();
+                });                
+            }
+            let data = [color;1];
+            cx.shared.color_led.lock(|color_led| {
+                color_led.write(brightness([color].iter().cloned(), 10))
+                .unwrap();
+            });
+        });
 
         cx.local.tg1_timer0.clear_interrupt();
         cx.local.tg1_timer0.set_alarm_active(true);
