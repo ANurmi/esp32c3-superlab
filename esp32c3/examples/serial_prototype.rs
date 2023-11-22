@@ -27,13 +27,14 @@ use panic_rtt_target as _;
 mod app {
     use esp32c3_hal::{
         clock::ClockControl,
-        peripherals::{Peripherals, TIMG0, UART0},
+        peripherals::{Peripherals, TIMG0, TIMG1, UART0},
         prelude::*,
         timer::{Timer, Timer0, TimerGroup},
         uart::{
             config::{Config, DataBits, Parity, StopBits},
             TxRxPins, UartRx, UartTx,
         },
+        Rtc,
         Uart, IO,
     };
 
@@ -41,6 +42,11 @@ mod app {
     use rtt_target::{rprint, rprintln, rtt_init_print};
 
     use core::mem::size_of;
+
+    use core::time::Duration;
+    use chrono::prelude::*;
+
+    use chrono::{Utc};
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
@@ -55,11 +61,15 @@ mod app {
     const CAPACITY: usize = 100;
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+      epoch_millis : i64,
+    }
 
     #[local]
     struct Local {
-        timer0: Timer<Timer0<TIMG0>>,
+        tg1_timer0 : Timer<Timer0<TIMG1>>, 
+        previous_rtc_timestamp : u64,
+        rtc : Rtc<'static>,
         tx: UartTx<'static, UART0>,
         rx: UartRx<'static, UART0>,
         sender: Sender<'static, Response, CAPACITY>,
@@ -82,6 +92,15 @@ mod app {
             &mut system.peripheral_clock_control,
         );
         let mut timer0 = timer_group0.timer0;
+
+        let timer_group1 = TimerGroup::new(
+          peripherals.TIMG1,
+          &clocks,
+          &mut system.peripheral_clock_control,
+        );
+        let mut tg1_timer0 = timer_group1.timer0;
+        timer0.clear_interrupt();
+        tg1_timer0.clear_interrupt();
 
         let config = Config {
             baudrate: 115200,
@@ -110,39 +129,57 @@ mod app {
         uart0.listen_rx_fifo_full();
 
         timer0.start(1u64.secs());
+        tg1_timer0.start(1u64.secs());
 
         let (tx, rx) = uart0.split();
 
         let rx_buff : InBuf = [0; IN_SIZE];
         let rx_idx  : usize = 0;
 
+        let rtc = Rtc::new(peripherals.RTC_CNTL);
+        
+
+        // SET THIS WITH UART
+        let datetime = Utc.ymd(2023, 1, 1).and_hms(0, 0, 0);
+          
+        let epoch_millis = datetime.timestamp_millis();
+
+        let previous_rtc_timestamp = rtc.get_time_ms();
+
+
         uart_tx::spawn(receiver).unwrap();
 
+        tg1_timer0.listen();
+
         (
-            Shared {},
+            Shared {
+              epoch_millis,
+            },
             Local {
-                timer0,
-                tx,
-                rx,
-                sender,
-                rx_buff,
-                rx_idx,
+              tg1_timer0,
+              rtc,
+              previous_rtc_timestamp,
+              tx,
+              rx,
+              sender,
+              rx_buff,
+              rx_idx,
             },
         )
     }
 
     // notice this is not an async task
-    #[idle(local = [ timer0 ])]
+    #[idle(local = [ ])]
     fn idle(cx: idle::Context) -> ! {
         loop {
             //rprintln!("idle, do some background work if any ...");
             // not async wait
-            nb::block!(cx.local.timer0.wait()).unwrap();
+            //nb::block!(cx.local.timer0.wait()).unwrap();
         }
     }
 
-    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx])]
-    fn uart0(cx: uart0::Context) {
+    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx], shared = [epoch_millis])]
+    fn uart0(mut cx: uart0::Context) {
         
         let rx = cx.local.rx;
         let sender = cx.local.sender;
@@ -170,6 +207,13 @@ mod app {
                   match &msg {
                     Message::A(udt) => {
                       rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
+                      let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
+          
+                      let new_epoch_millis = datetime.timestamp_millis();
+
+                      cx.shared.epoch_millis.lock(|epoch_millis| {
+                        *epoch_millis = new_epoch_millis;
+                      });
                     },
                     Message::B(int_val) => {
                       rprintln!("Received Set({},{},{})", id, int_val, devid);
@@ -235,5 +279,30 @@ mod app {
             let to_write = serialize_crc_cobs(&c, &mut tx_buff);
             tx.write_bytes(to_write).unwrap();
         }
+    }
+
+    #[task(binds = TG1_T0_LEVEL, local = [tg1_timer0, rtc, previous_rtc_timestamp], shared = [epoch_millis], priority = 2)]
+    fn advance_time(mut cx: advance_time::Context) {
+    
+        let new_time : u64 = cx.local.rtc.get_time_ms();
+        // Calculate time that has passed since last interrupt.
+        let millis_passed : u64 = new_time - *cx.local.previous_rtc_timestamp;
+
+        // Create a time stamp for this interrupt.
+        *cx.local.previous_rtc_timestamp = new_time;
+
+        // TODO: can we get this in seconds somewhere?
+        let mut timestamp : i64 = 0;
+        cx.shared.epoch_millis.lock(|epoch_millis| {
+            *epoch_millis = *epoch_millis + (millis_passed as i64);
+            timestamp = *epoch_millis;
+        });
+        rprintln!("epoch in ms is {}", timestamp);
+
+        let dt = Utc.timestamp(timestamp/1000, 0);
+        rprintln!("{}-{}-{} {}:{}:{}", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
+
+        cx.local.tg1_timer0.clear_interrupt();
+        cx.local.tg1_timer0.set_alarm_active(true);
     }
 }
