@@ -15,6 +15,7 @@ use std::{io::{Read, ErrorKind}, mem::size_of, time::Duration};
 // Libraries
 use corncobs::{max_encoded_len, ZERO};
 use serial2::SerialPort;
+use chrono::prelude::*;
 
 // Application dependencies
 use host::open;
@@ -32,6 +33,8 @@ fn main() -> Result<(), std::io::Error> {
 
     println!("\n\nRTIC2 - Reliable Serial Communication: Host Application\n");
 
+    // get current time
+    let utc : DateTime<Utc> = Utc::now();
     let mut port = open()?;
 
     port.set_read_timeout(CMD_TIMEOUT_SECS)?;
@@ -39,8 +42,8 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut out_buf = [0u8; OUT_SIZE];
     let mut in_buf = [0u8; IN_SIZE];
-
-    let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 20, hour: 12, minute: 24, second: 36, nanoseconds: 48 };    
+    // cast chrono object into serdes friendly object
+    let udt : UtcDateTime = utc.into();   
 
     let cmd = Command::Set(0x12, Message::A(udt), 0b001);
     println!("--> Request: {:?}\n", cmd);

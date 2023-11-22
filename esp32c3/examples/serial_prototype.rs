@@ -50,7 +50,7 @@ mod app {
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
-    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response}; // local library
+    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
     const OUT_SIZE: usize = max_encoded_len(size_of::<Response>() + size_of::<u32>());
@@ -191,14 +191,13 @@ mod app {
         while let nb::Result::Ok(c) = rx.read() {
 
             rx_buff[*rx_idx] = c;
-            //rprintln!("c = {}, idx = {}", c, rx_idx);
 
             // reset element idx counter when eof received
             if c == ZERO {
               
               *rx_idx = 0;
 
-              let cmd = decode_command(rx_buff).unwrap();
+              let cmd = deserialize_crc_cobs(rx_buff).unwrap();
 
               match &cmd {
 
