@@ -50,7 +50,7 @@ mod app {
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
-    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
+    use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response, Faults}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
     const OUT_SIZE: usize = max_encoded_len(size_of::<Response>() + size_of::<u32>());
@@ -197,46 +197,64 @@ mod app {
               
               *rx_idx = 0;
 
-              let cmd = deserialize_crc_cobs(rx_buff).unwrap();
+              let cmd_res = deserialize_crc_cobs(rx_buff);
+              let mut rsp = Response::SetOk;
+              
+              match cmd_res {
 
-              match &cmd {
+                Ok(cmd) => {
 
-                Command::Set(id, msg, devid) => {
+                  match cmd {
 
-                  match &msg {
-                    Message::A(udt) => {
-                      rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
-                      let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
-          
-                      let new_epoch_millis = datetime.timestamp_millis();
-
-                      cx.shared.epoch_millis.lock(|epoch_millis| {
-                        *epoch_millis = new_epoch_millis;
-                      });
+                    Command::Set(id, msg, devid) => {
+    
+                      match &msg {
+                        Message::A(udt) => {
+                          rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
+                          let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
+              
+                          let new_epoch_millis = datetime.timestamp_millis();
+    
+                          cx.shared.epoch_millis.lock(|epoch_millis| {
+                            *epoch_millis = new_epoch_millis;
+                          });
+                        },
+                        Message::B(int_val) => {
+                          rprintln!("Received Set({},{},{})", id, int_val, devid);
+                        },
+                        Message::C(duration_secs, freq_hz) => {
+                          rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
+                        },
+                        Message::D(udt, duration_secs, freq_hz) => {
+                          rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
+                        }
+                        _ => {
+                          rprintln!("[ERROR] - Set Message format not recognised!");
+                        },
+                      };
                     },
-                    Message::B(int_val) => {
-                      rprintln!("Received Set({},{},{})", id, int_val, devid);
-                    },
-                    Message::C(duration_secs, freq_hz) => {
-                      rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
-                    },
-                    Message::D(udt, duration_secs, freq_hz) => {
-                      rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
-                    }
-                    _ => {
-                      rprintln!("[ERROR] - Set Message format not recognised!");
+                    Command::Get(id, param, devid) => {
+                      rprintln!("Received Get({},{},{})", id, param, devid);
                     },
                   };
                 },
-                Command::Get(id, param, devid) => {
-                  rprintln!("Received Get({},{},{})", id, param, devid);
-                },
-                _ => {
-                  rprintln!("[ERROR] - Received cmd not recognised!");
-                },
+                Err(fault) => {
+    
+                  match fault {
+    
+                    Faults::BitFlipData => { 
+                      rprintln!("Detected bitflip in payload or CRC!");
+                      rsp = Response::NotOK;
+                    },
+                    _ => {
+                      rprintln!("[ERROR] - Received cmd not recognised!");
+                      rsp = Response::NotOK;
+                    },
+                  };
+                }
               };
 
-              match sender.try_send(Response::SetOk) {
+              match sender.try_send(rsp) {
                 Err(_) => {
                     rprintln!("send buffer full");
                 }
@@ -272,7 +290,10 @@ mod app {
               },
               Response::Data(id, param, val, devid) => {
                 rprintln!("Sending Response::Data({},{},{},{}", id, param, val, devid);
-              }
+              },
+              Response::NotOK => {
+                rprint!("Sending Response::NotOK");
+              },
             }
 
             let to_write = serialize_crc_cobs(&c, &mut tx_buff);

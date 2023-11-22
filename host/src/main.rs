@@ -19,7 +19,7 @@ use chrono::prelude::*;
 
 // Application dependencies
 use host::open;
-use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response, date_time::UtcDateTime}; // local library
+use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response, Faults, date_time::UtcDateTime}; // local library
 
 const CMD_TIMEOUT_SECS : Duration = Duration::from_secs(2); 
 
@@ -75,6 +75,26 @@ fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
+fn get_response(in_buf: &mut InBuf) -> Result<Response, ()> {
+    
+    // Get response and check for errors
+    let rsp = deserialize_crc_cobs(in_buf);
+    match rsp {
+        Ok(r) => {
+            return Ok(r);
+        },
+        Err(e) => {
+            
+            match e {
+                Faults::BitFlipData => {
+                    println!("[Error] Detected bit flip in Data or CRC!\n");
+                },
+            }; 
+            return Ok(Response::NotOK);
+        },
+    };
+}
+
 fn request(
     cmd: &Command,
     port: &mut SerialPort,
@@ -100,7 +120,7 @@ fn request(
             if index < IN_SIZE {
                 index += 1;
             }
-
+            
             match port.read_exact(slice) {
                 Ok(_) => {
                     // do nothing
@@ -128,5 +148,7 @@ fn request(
         }
     }
 
-    Ok(deserialize_crc_cobs(in_buf).unwrap())
+    // Get response and check for errors
+    Ok(get_response(in_buf).unwrap())
+   
 }

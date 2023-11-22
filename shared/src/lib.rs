@@ -33,6 +33,13 @@ pub enum Response {
     Data(Id, Parameter, u32, DevId),
     SetOk,
     ParseError,
+    NotOK,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(C)]
+pub enum Faults {
+    BitFlipData,
 }
 
 pub const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
@@ -54,8 +61,7 @@ pub fn serialize_crc_cobs<'a, T: serde::Serialize, const N: usize>(
 
 /// deserialize T from cobs in_buf with crc check
 /// panics on all errors
-/// TODO: reasonable error handling
-pub fn deserialize_crc_cobs<T>(in_buf: &mut [u8]) -> Result<T, ()>
+pub fn deserialize_crc_cobs<T>(in_buf: &mut [u8]) -> Result<T, Faults>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
@@ -64,6 +70,10 @@ where
     let crc_buf = &in_buf[resp_used..];
     let (crc, _crc_used) = ssmarshal::deserialize::<u32>(crc_buf).unwrap();
     let pkg_crc = CKSUM.checksum(&in_buf[0..resp_used]);
-    assert_eq! {crc, pkg_crc};
+
+    // check for bitflip within payload/CRC
+    if crc != pkg_crc {
+        return Err(Faults::BitFlipData);
+    }
     Ok(t)
 }

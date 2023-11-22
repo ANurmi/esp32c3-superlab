@@ -4,7 +4,7 @@
 `set(id = 1, Message::A(UtcDateTime), DevID)`
 
 - Configure LED Blinker to be off now
-`set(id = 2, Message::B(0), DevID)`
+`set(id = 2, Message::B(<doesn't matter>), DevID)`
 
 - Turn LED Blinker on right now, for a set duration, at a set frequency
 `set(id = 3, Message::C(duration_secs, frequency_hz), DevID)`
