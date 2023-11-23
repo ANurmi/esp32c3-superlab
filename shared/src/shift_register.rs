@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #[derive(PartialEq)]
 pub struct ShiftRegister {
     reg : [u64;5],

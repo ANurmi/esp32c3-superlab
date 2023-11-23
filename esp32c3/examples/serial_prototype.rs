@@ -17,6 +17,8 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![allow(unreachable_patterns)]
+#![allow(dead_code)]
 
 use panic_rtt_target as _;
 
@@ -163,10 +165,10 @@ mod app {
         let rx_idx  : usize = 0;
 
         let rtc = Rtc::new(peripherals.RTC_CNTL);
-        
-        let datetime = Utc.ymd(2023, 1, 1).and_hms(17, 0, 0);
-          
-        let epoch_millis = datetime.timestamp_millis();
+
+        let dt = Utc.with_ymd_and_hms(2023, 1, 1,17, 0, 0).unwrap();
+                  
+        let epoch_millis = dt.timestamp_millis();
 
         let previous_rtc_timestamp = rtc.get_time_ms();
 
@@ -220,7 +222,7 @@ mod app {
 
     // notice this is not an async task
     #[idle(local = [ ])]
-    fn idle(cx: idle::Context) -> ! {
+    fn idle(_cx: idle::Context) -> ! {
         loop {
             //rprintln!("idle, do some background work if any ...");
             // not async wait
@@ -256,9 +258,10 @@ mod app {
                   match &msg {
                     Message::A(udt) => {
                       rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
-                      let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
+                      
+                      let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
           
-                      let new_epoch_millis = datetime.timestamp_millis();
+                      let new_epoch_millis = dt.timestamp_millis();
 
                       cx.shared.epoch_millis.lock(|epoch_millis| {
                         *epoch_millis = new_epoch_millis;
@@ -297,9 +300,9 @@ mod app {
                     },
                     Message::D(udt, duration_secs, freq_hz) => {
                       rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
-                      let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
+                      let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
           
-                      let new_epoch_millis = datetime.timestamp_millis();
+                      let new_epoch_millis = dt.timestamp_millis();
 
                       cx.shared.epoch_millis.lock(|epoch_millis| {
                         *epoch_millis = new_epoch_millis;
@@ -369,8 +372,7 @@ mod app {
     }
 
     fn get_led_color(epoch_millis : i64) -> RGB<u8> {
-        let dt = Utc.timestamp(epoch_millis/1000, 0);
-        let hours = dt.hour();
+        let hours = Utc.timestamp_opt(epoch_millis/1000, 0).unwrap().hour();
         if hours >= 3 && hours < 9 {
             return RGB {r: 0xF8, g: 0xF3, b: 0x2B};
         } else if hours >= 9 && hours < 15 {
@@ -416,7 +418,7 @@ mod app {
             timestamp = *epoch_millis;
         });
 
-        let dt = Utc.timestamp(timestamp/1000, 0);
+        let dt = Utc.timestamp_opt(timestamp/1000, 0).unwrap();
         rprintln!("[{}-{:02}-{:02} {:02}:{:02}:{:02}]", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
 
         let mut end_blinking : bool = false;
