@@ -63,7 +63,6 @@ mod app {
 
     use core::mem::size_of;
 
-    use core::time::Duration;
     use chrono::prelude::*;
 
     use chrono::{Utc};
@@ -154,7 +153,7 @@ mod app {
         uart0.set_rx_fifo_full_threshold(1).unwrap();
         uart0.listen_rx_fifo_full();
 
-              tg1_timer0.start(1u64.secs());
+        tg1_timer0.start(1u64.secs());
 
         let (tx, rx) = uart0.split();
 
@@ -163,7 +162,7 @@ mod app {
 
         let rtc = Rtc::new(peripherals.RTC_CNTL);
         
-let dt = Utc.with_ymd_and_hms(2023, 1, 1,17, 0, 0).unwrap();
+let dt = Utc.with_ymd_and_hms(2023, 1, 1,0, 0, 0).unwrap();
 
         let epoch_millis = dt.timestamp_millis();
 
@@ -305,14 +304,11 @@ let rmt = Rmt::new(
                           rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
                           let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
           
-                          let new_epoch_millis = dt.timestamp_millis();
-
-                          cx.shared.epoch_millis.lock(|epoch_millis| {
-                            *epoch_millis = new_epoch_millis;
-                          });
+                          let start_time = dt.timestamp_millis();
 
                           cx.shared.blink_led_config.lock(|config| {
-                            config.blink_end_time = new_epoch_millis + ((duration_secs as i64)*1000);
+                            config.blink_start_time = start_time;
+                            config.blink_end_time = start_time + ((duration_secs as i64)*1000);
                             //TODO: this would act funny after 1 kHz
                             config.blink_period_millis = 1000/freq_hz;
                           });                      
@@ -438,7 +434,7 @@ let rmt = Rmt::new(
         // Create a time stamp for this interrupt.
         *cx.local.previous_rtc_timestamp = new_time;
 
-                let mut timestamp : i64 = 0;
+        let mut timestamp : i64 = 0;
         cx.shared.epoch_millis.lock(|epoch_millis| {
             *epoch_millis = *epoch_millis + (millis_passed as i64);
             timestamp = *epoch_millis;
