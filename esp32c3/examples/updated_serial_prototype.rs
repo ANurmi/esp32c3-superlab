@@ -25,6 +25,8 @@ use panic_rtt_target as _;
 // bring in panic handler
 use panic_rtt_target as _;
 
+
+
 #[rtic::app(device = esp32c3, dispatchers = [FROM_CPU_INTR0, FROM_CPU_INTR1])]
 mod app {
     use esp32c3_hal::{
@@ -63,14 +65,17 @@ mod app {
 
     use core::mem::size_of;
 
-    use core::time::Duration;
     use chrono::prelude::*;
 
     use chrono::{Utc};
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
-    use shared::{deserialize_crc_cobs, serialize_crc_cobs, Command, Message, Response, Faults}; // local library
+    /*
+    Cannot find decode_command?
+    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
+    */
+    use shared::{serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
     const OUT_SIZE: usize = max_encoded_len(size_of::<Response>() + size_of::<u32>());
@@ -92,7 +97,7 @@ mod app {
     #[local]
     struct Local {
         color_led : SmartLedsAdapter<esp32c3_hal::rmt::Channel0<0>, 0, 25>,
-        tg1_timer0 : Timer<Timer0<TIMG1>>, 
+        tg1_timer0 : Timer<Timer0<TIMG1>>,
         previous_rtc_timestamp : u64,
         rtc : Rtc<'static>,
         tx: UartTx<'static, UART0>,
@@ -101,6 +106,7 @@ mod app {
         rx_buff: InBuf,
         rx_idx: usize,
     }
+
     
     #[init]
     fn init(_: init::Context) -> (Shared, Local) {
@@ -154,7 +160,7 @@ mod app {
         uart0.set_rx_fifo_full_threshold(1).unwrap();
         uart0.listen_rx_fifo_full();
 
-              tg1_timer0.start(1u64.secs());
+        tg1_timer0.start(1u64.secs());
 
         let (tx, rx) = uart0.split();
 
@@ -162,14 +168,14 @@ mod app {
         let rx_idx  : usize = 0;
 
         let rtc = Rtc::new(peripherals.RTC_CNTL);
-        
-let dt = Utc.with_ymd_and_hms(2023, 1, 1,17, 0, 0).unwrap();
 
+        let dt = Utc.with_ymd_and_hms(2023, 1, 1,17, 0, 0).unwrap();
+                  
         let epoch_millis = dt.timestamp_millis();
 
         let previous_rtc_timestamp = rtc.get_time_ms();
 
-let blink_led_config = BlinkLedConfig {
+        let blink_led_config = BlinkLedConfig {
             blink_start_time: epoch_millis + 1000,
             blink_end_time: epoch_millis + 10000,
             blink_period_millis: 300,
@@ -185,7 +191,7 @@ let blink_led_config = BlinkLedConfig {
 
         tg1_timer0.listen();
 
-let rmt = Rmt::new(
+        let rmt = Rmt::new(
             peripherals.RMT,
             80u32.MHz(),
             &mut system.peripheral_clock_control,
@@ -246,108 +252,85 @@ let rmt = Rmt::new(
               
               *rx_idx = 0;
 
-              let cmd_res = deserialize_crc_cobs(rx_buff);
-              let mut rsp = Response::SetOk;
-              
-              match cmd_res {
+              let cmd = deserialize_crc_cobs(rx_buff).unwrap();
 
-                // extract command if no errors were identified during the deserialise process
-                Ok(cmd) => {
+              match &cmd {
 
-                  match cmd {
+                Command::Set(id, msg, devid) => {
 
-                    Command::Set(id, msg, devid) => {
+                  match &msg {
+                    Message::A(udt) => {
+                      rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);
                       
-                      // 
-                      match msg {
-
-                        Message::A(udt) => {
-                          rprintln!("Received Set({}, [year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}],{})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, devid);                        
-              
-                          let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
+                      let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
           
                       let new_epoch_millis = dt.timestamp_millis();
-    
-                          cx.shared.epoch_millis.lock(|epoch_millis| {
-                            *epoch_millis = new_epoch_millis;
-                          });
-                        },
-                        Message::B(int_val) => {
-                          rprintln!("Received Set({},{},{})", id, int_val, devid);
-                          if id == 2 {
-                            cx.shared.blink_led_config.lock(|config| {
-                                // Set this to zero so we stop blinking
-                                config.blink_end_time = 0;
-                            });
-                          } else if id == 5 {
-                            cx.shared.color_led_active.lock(|active| {
-                                *active = int_val != 0;
-                            });
-                          }
-                        },
-                        Message::C(duration_secs, freq_hz) => {
-                          rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
 
-                            let mut time_stamp = 0;
+                      cx.shared.epoch_millis.lock(|epoch_millis| {
+                        *epoch_millis = new_epoch_millis;
+                      });
+                    },
+                    Message::B(int_val) => {
+                      rprintln!("Received Set({},{},{})", id, int_val, devid);
 
-                            //Avoid nested locks
-                            cx.shared.epoch_millis.lock(|epoch_millis| {
-                                time_stamp = *epoch_millis;
-                            });
+                      if *id == 2 {
+                        cx.shared.blink_led_config.lock(|config| {
+                            // Set this to zero so we stop blinking
+                            config.blink_end_time = 0;
+                        });
+                      } else if *id == 5 {
+                        cx.shared.color_led_active.lock(|active| {
+                            *active = *int_val != 0;
+                        });
+                      }
 
-                            cx.shared.blink_led_config.lock(|config| {
-                                config.blink_end_time = time_stamp + ((duration_secs as i64)*1000);
-                                //TODO: this would act funny after 1 kHz
-                                config.blink_period_millis = 1000/freq_hz;
-                            });
-                        },
-                        Message::D(udt, duration_secs, freq_hz) => {
-                          rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
-                          let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
-          
-                          let new_epoch_millis = dt.timestamp_millis();
+                    },
+                    Message::C(duration_secs, freq_hz) => {
+                      rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
 
-                          cx.shared.epoch_millis.lock(|epoch_millis| {
-                            *epoch_millis = new_epoch_millis;
-                          });
+                        let mut time_stamp = 0;
 
-                          cx.shared.blink_led_config.lock(|config| {
-                            config.blink_end_time = new_epoch_millis + ((duration_secs as i64)*1000);
+                        //Avoid nested locks
+                        cx.shared.epoch_millis.lock(|epoch_millis| {
+                            time_stamp = *epoch_millis;
+                        });
+
+                        cx.shared.blink_led_config.lock(|config| {
+                            config.blink_end_time = time_stamp + ((*duration_secs as i64)*1000);
                             //TODO: this would act funny after 1 kHz
                             config.blink_period_millis = 1000/freq_hz;
-                          });                      
-                        }
-                        _ => {
-                          rprintln!("[ERROR] - Set Message format not recognised!");
-                          rsp = Response::Illegal;
-                        },
-                      };
+                        });
                     },
+                    Message::D(udt, duration_secs, freq_hz) => {
+                      rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
+                      let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
+          
+                      let new_epoch_millis = dt.timestamp_millis();
 
-                    Command::Get(id, param, devid) => {
-                      rprintln!("Received Get({},{},{})", id, param, devid);
+                      cx.shared.epoch_millis.lock(|epoch_millis| {
+                        *epoch_millis = new_epoch_millis;
+                      });
+
+                      cx.shared.blink_led_config.lock(|config| {
+                        config.blink_end_time = new_epoch_millis + ((*duration_secs as i64)*1000);
+                        //TODO: this would act funny after 1 kHz
+                        config.blink_period_millis = 1000/freq_hz;
+                      });                      
+                    }
+                    _ => {
+                      rprintln!("[ERROR] - Set Message format not recognised!");
                     },
-
                   };
                 },
-                // Use the error reported in the serialise process to determine how to respond
-                Err(fault) => {
-    
-                  match fault {
-    
-                    Faults::BitFlipData => { 
-                      rprintln!("Detected bitflip in payload or CRC!");
-                      rsp = Response::NotOK;
-                    },
-                    _ => {
-                      rprintln!("[ERROR] - Received cmd not recognised!");
-                      rsp = Response::NotOK;
-                    },
-                  };
-                }
+                Command::Get(id, param, devid) => {
+                  rprintln!("Received Get({},{},{})", id, param, devid);
+                },
+                _ => {
+                  rprintln!("[ERROR] - Received cmd not recognised!");
+                },
               };
 
-              match sender.try_send(rsp) {
+              match sender.try_send(Response::SetOk) {
                 Err(_) => {
                     rprintln!("send buffer full");
                 }
@@ -383,13 +366,7 @@ let rmt = Rmt::new(
               },
               Response::Data(id, param, val, devid) => {
                 rprintln!("Sending Response::Data({},{},{},{}", id, param, val, devid);
-              },
-              Response::NotOK => {
-                rprintln!("Sending Response::NotOK");
-              },
-              Response::Illegal => {
-                rprintln!("Sending Response::Illegal");
-              },
+              }
             }
 
             let to_write = serialize_crc_cobs(&c, &mut tx_buff);
@@ -438,12 +415,12 @@ let rmt = Rmt::new(
         // Create a time stamp for this interrupt.
         *cx.local.previous_rtc_timestamp = new_time;
 
-                let mut timestamp : i64 = 0;
+        let mut timestamp : i64 = 0;
         cx.shared.epoch_millis.lock(|epoch_millis| {
             *epoch_millis = *epoch_millis + (millis_passed as i64);
             timestamp = *epoch_millis;
         });
-        
+
         let dt = Utc.timestamp_opt(timestamp/1000, 0).unwrap();
         rprintln!("[{}-{:02}-{:02} {:02}:{:02}:{:02}]", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
 

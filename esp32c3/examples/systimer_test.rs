@@ -19,7 +19,9 @@ mod app {
     struct Shared {}
 
     #[local]
-    struct Local {}
+    struct Local {
+        //time : 
+    }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
