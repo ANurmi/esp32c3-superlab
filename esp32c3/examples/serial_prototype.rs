@@ -99,6 +99,7 @@ mod app {
         sender: Sender<'static, Response, CAPACITY>,
         rx_buff: InBuf,
         rx_idx: usize,
+        time_set: bool,
     }
     
     #[init]
@@ -175,6 +176,7 @@ mod app {
             active : false,
         };
 
+        let time_set : bool = false;
 
         uart_tx::spawn(receiver).unwrap();
 
@@ -212,6 +214,7 @@ mod app {
               sender,
               rx_buff,
               rx_idx,
+              time_set,
             },
         )
     }
@@ -220,13 +223,11 @@ mod app {
     #[idle(local = [ ])]
     fn idle(_cx: idle::Context) -> ! {
         loop {
-            //rprintln!("idle, do some background work if any ...");
-            // not async wait
-            //nb::block!(cx.local.timer0.wait()).unwrap();
+            // do nothing
         }
     }
 
-    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx], shared = [epoch_millis, blink_led_config, color_led_active])]
+    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx, time_set], shared = [epoch_millis, blink_led_config, color_led_active])]
     fn uart0(mut cx: uart0::Context) {
         
         let rx = cx.local.rx;
@@ -277,12 +278,15 @@ mod app {
                               cx.shared.epoch_millis.lock(|epoch_millis| {
                                 *epoch_millis = new_epoch_millis;
                               });
+
+                              *cx.local.time_set = true;
                           }
                         },
 
                         Message::B(int_val) => {
 
                             if (id != 2 && id != 5) {
+
                               rsp = Response::Illegal;
 
                             } else {
@@ -339,7 +343,7 @@ mod app {
 
                         Message::D(udt, duration_secs, freq_hz) => {
                           
-                            if (id != 4) {
+                            if (id != 4 || *cx.local.time_set == false) {
 
                                 rsp = Response::Illegal;
 
