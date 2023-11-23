@@ -45,24 +45,30 @@ fn main() -> Result<(), std::io::Error> {
     // cast chrono object into serdes friendly object
     let udt : UtcDateTime = utc.into();   
 
-    let cmd = Command::Set(0x12, Message::A(udt), 0b001);
+    // set time to current UTC time
+    let cmd = Command::Set(0x1, Message::A(udt), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
 
-    let cmd = Command::Set(0x12, Message::B(12), 0b001);
+    let cmd = Command::Set(0x2, Message::B(12), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
 
-    let cmd = Command::Set(0x12, Message::C(20000, 32768), 0b001);
+    let cmd = Command::Set(0x12, Message::C(20000, 10), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
 
     let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 24, hour: 12, minute: 24, second: 36, nanoseconds: 48 };    
 
-    let cmd = Command::Set(0x12, Message::D(udt, 20000, 32768), 0b001);
+    let cmd = Command::Set(0x12, Message::D(udt, 20000, 10), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);
+
+    let cmd = Command::Set(0x5, Message::B(0), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
@@ -72,6 +78,7 @@ fn main() -> Result<(), std::io::Error> {
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
+
     Ok(())
 }
 
