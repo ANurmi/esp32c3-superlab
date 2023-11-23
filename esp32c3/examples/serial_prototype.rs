@@ -161,7 +161,6 @@ mod app {
         uart0.listen_rx_fifo_full();
 
         tg1_timer0.start(1u64.secs());
-        tg0_timer0.start(1u64.secs());
 
         let (tx, rx) = uart0.split();
 
