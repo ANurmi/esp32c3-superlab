@@ -69,6 +69,7 @@ fn main() -> Result<(), std::io::Error> {
     let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 23, hour: 18, minute: 35, second: 1, nanoseconds: 48 };    
 
     // schedule blinker for certain time for a set duration and frequency
+    // note that this will return an illegal response if attempted before the time is set
     let cmd = Command::Set(0x4, Message::D(udt, 100, 32768), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
