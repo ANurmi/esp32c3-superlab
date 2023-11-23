@@ -45,15 +45,15 @@ mod app {
     pub struct BlinkLedConfig {
         blink_start_time : i64,
         blink_end_time : i64,
-        blink_frequency : u32,
+        blink_period_millis : u32,
         active : bool,
     }
 
     use rtic_sync::{channel::*, make_channel};
-    use rtt_target::{rprint, rprintln, rtt_init_print};
+    use rtt_target::{rprintln, rtt_init_print};
 
     use smart_leds::{
-        brightness, gamma,
+        brightness,
         RGB,
         SmartLedsWrite,
     };
@@ -63,7 +63,6 @@ mod app {
 
     use core::mem::size_of;
 
-    use core::time::Duration;
     use chrono::prelude::*;
 
     use chrono::{Utc};
@@ -86,12 +85,12 @@ mod app {
       blink_led_config : BlinkLedConfig,
       tg0_timer0 : Timer<Timer0<TIMG0>>,
       blink_led: Gpio7<Output<PushPull>>,
-      color_led : SmartLedsAdapter<esp32c3_hal::rmt::Channel0<0>, 0, 25>,
       color_led_active : bool,
     }
 
     #[local]
     struct Local {
+        color_led : SmartLedsAdapter<esp32c3_hal::rmt::Channel0<0>, 0, 25>,
         tg1_timer0 : Timer<Timer0<TIMG1>>,
         previous_rtc_timestamp : u64,
         rtc : Rtc<'static>,
@@ -174,7 +173,7 @@ mod app {
         let blink_led_config = BlinkLedConfig {
             blink_start_time: epoch_millis + 1000,
             blink_end_time: epoch_millis + 10000,
-            blink_frequency: 300,
+            blink_period_millis: 300,
             active : false,
         };
 
@@ -203,10 +202,10 @@ mod app {
               blink_led_config,
               tg0_timer0,
               blink_led,
-              color_led,
               color_led_active,
             },
             Local {
+              color_led,
               tg1_timer0,
               rtc,
               previous_rtc_timestamp,
@@ -229,7 +228,7 @@ mod app {
         }
     }
 
-    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx], shared = [epoch_millis])]
+    #[task(binds = UART0, priority=2, local = [ rx, sender, rx_buff, rx_idx], shared = [epoch_millis, blink_led_config, color_led_active])]
     fn uart0(mut cx: uart0::Context) {
         
         let rx = cx.local.rx;
@@ -267,12 +266,50 @@ mod app {
                     },
                     Message::B(int_val) => {
                       rprintln!("Received Set({},{},{})", id, int_val, devid);
+
+                      if *id == 2 {
+                        cx.shared.blink_led_config.lock(|config| {
+                            // Set this to zero so we stop blinking
+                            config.blink_end_time = 0;
+                        });
+                      } else if *id == 5 {
+                        cx.shared.color_led_active.lock(|active| {
+                            *active = *int_val != 0;
+                        });
+                      }
+
                     },
                     Message::C(duration_secs, freq_hz) => {
                       rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
+
+                        let mut time_stamp = 0;
+
+                        //Avoid nested locks
+                        cx.shared.epoch_millis.lock(|epoch_millis| {
+                            time_stamp = *epoch_millis;
+                        });
+
+                        cx.shared.blink_led_config.lock(|config| {
+                            config.blink_end_time = time_stamp + ((*duration_secs as i64)*1000);
+                            //TODO: this would act funny after 1 kHz
+                            config.blink_period_millis = 1000/freq_hz;
+                        });
                     },
                     Message::D(udt, duration_secs, freq_hz) => {
                       rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
+                      let datetime = Utc.ymd(udt.year, udt.month, udt.day).and_hms(udt.hour, udt.minute, udt.second);
+          
+                      let new_epoch_millis = datetime.timestamp_millis();
+
+                      cx.shared.epoch_millis.lock(|epoch_millis| {
+                        *epoch_millis = new_epoch_millis;
+                      });
+
+                      cx.shared.blink_led_config.lock(|config| {
+                        config.blink_end_time = new_epoch_millis + ((*duration_secs as i64)*1000);
+                        //TODO: this would act funny after 1 kHz
+                        config.blink_period_millis = 1000/freq_hz;
+                      });                      
                     }
                     _ => {
                       rprintln!("[ERROR] - Set Message format not recognised!");
@@ -362,8 +399,8 @@ mod app {
     }
 
     // We should not pre-empt this so that the wide time stamps are correct.
-    #[task(binds = TG1_T0_LEVEL, local = [tg1_timer0, rtc, previous_rtc_timestamp],
-        shared = [epoch_millis, blink_led_config, tg0_timer0, blink_led, color_led, color_led_active], priority = 2)]
+    #[task(binds = TG1_T0_LEVEL, local = [tg1_timer0, rtc, previous_rtc_timestamp, color_led],
+        shared = [epoch_millis, blink_led_config, tg0_timer0, blink_led, color_led_active], priority = 2)]
     fn advance_time(mut cx: advance_time::Context) {
     
         let new_time : u64 = cx.local.rtc.get_time_ms();
@@ -378,34 +415,48 @@ mod app {
             *epoch_millis = *epoch_millis + (millis_passed as i64);
             timestamp = *epoch_millis;
         });
-        //rprintln!("epoch in ms is {}", timestamp);
 
         let dt = Utc.timestamp(timestamp/1000, 0);
         rprintln!("[{}-{:02}-{:02} {:02}:{:02}:{:02}]", dt.year(), dt.month(), dt.day(),  dt.hour(), dt.minute(), dt.second());
 
-        // Check led config, separate this to its own func.
-        
+        let mut end_blinking : bool = false;
+        let mut start_blinking : bool = false;
+
+        let mut blink_period : u32 = 0;
+
+
+        // Check time values whether we should start or stop blinking
         cx.shared.blink_led_config.lock(|config| {
             if timestamp > config.blink_end_time && config.active {
                 config.active = false;
+                end_blinking = true;
                 rprintln!("Ending blinking");
-                cx.shared.tg0_timer0.lock(|tg0_timer0| {
-                    tg0_timer0.clear_interrupt();
-                    tg0_timer0.set_alarm_active(false);
-                    tg0_timer0.unlisten();
-                });
-                cx.shared.blink_led.lock(|led| {
-                    led.set_low().unwrap();
-                });
             } else if timestamp > config.blink_start_time && timestamp < config.blink_end_time  && !config.active {
                 rprintln!("Starting blinking");
+                start_blinking = true;
                 config.active = true;
-                cx.shared.tg0_timer0.lock(|tg0_timer0: &mut Timer<Timer0<TIMG0>>| {
-                    tg0_timer0.start(config.blink_frequency.millis());
-                    tg0_timer0.clear_interrupt();
-                    tg0_timer0.set_alarm_active(true);
-                    tg0_timer0.listen();
-                });
+                blink_period = config.blink_period_millis/2;
+            }
+        });
+
+        // Set the interrupt parameters for the timer that triggers blinking
+        cx.shared.tg0_timer0.lock(|tg0_timer0| {
+            if end_blinking {
+                tg0_timer0.clear_interrupt();
+                tg0_timer0.set_alarm_active(false);
+                tg0_timer0.unlisten();
+            } else if start_blinking {
+                tg0_timer0.start(blink_period.millis());
+                tg0_timer0.clear_interrupt();
+                tg0_timer0.set_alarm_active(true);
+                tg0_timer0.listen();
+            }
+        });
+
+        cx.shared.blink_led.lock(|led| {
+            // Make sure the led is switched off if we stop blinking
+            if end_blinking {
+                led.set_low().unwrap();
             }
         });
 
@@ -415,17 +466,8 @@ mod app {
         cx.shared.color_led_active.lock(|active| {
             if *active {
                 color = get_led_color(timestamp);
-                let data = [color;1];
-                cx.shared.color_led.lock(|color_led| {
-                    color_led.write(brightness([color].iter().cloned(), 10))
-                    .unwrap();
-                });                
             }
-            let data = [color;1];
-            cx.shared.color_led.lock(|color_led| {
-                color_led.write(brightness([color].iter().cloned(), 10))
-                .unwrap();
-            });
+            cx.local.color_led.write(brightness([color].iter().cloned(), 10)).unwrap();
         });
 
         cx.local.tg1_timer0.clear_interrupt();
