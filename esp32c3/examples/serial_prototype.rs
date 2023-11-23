@@ -71,6 +71,10 @@ mod app {
 
     // shared libs
     use corncobs::{max_encoded_len, ZERO};
+    /*
+    Cannot find decode_command?
+    use shared::{decode_command, serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
+    */
     use shared::{serialize_crc_cobs, Command, Message, Response, deserialize_crc_cobs}; // local library
 
     const IN_SIZE: usize = max_encoded_len(size_of::<Command>() + size_of::<u32>());
