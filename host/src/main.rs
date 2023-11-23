@@ -50,24 +50,28 @@ fn main() -> Result<(), std::io::Error> {
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
+        
+    // turn off blinker right now
+    let cmd = Command::Set(0x2, Message::B(0), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);    
 
-    let cmd = Command::Set(0x2, Message::B(12), 0b001);
+    // turn on blinker right now for set duration and frequency
+    let cmd = Command::Set(0x3, Message::C(20, 10), 0b001);
+    println!("--> Request: {:?}\n", cmd);
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    println!("<-- Response: {:?}\n", response);
+    
+    let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 23, hour: 18, minute: 35, second: 1, nanoseconds: 48 };    
+    
+    // schedule blinker for certain time for a set duration and frequency
+    let cmd = Command::Set(0x4, Message::D(udt, 100, 32768), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
     println!("<-- Response: {:?}\n", response);
 
-    let cmd = Command::Set(0x12, Message::C(20000, 10), 0b001);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
-    println!("<-- Response: {:?}\n", response);
-
-    let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 24, hour: 12, minute: 24, second: 36, nanoseconds: 48 };    
-
-    let cmd = Command::Set(0x12, Message::D(udt, 20000, 10), 0b001);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
-    println!("<-- Response: {:?}\n", response);
-
+    // toggle RGB LED
     let cmd = Command::Set(0x5, Message::B(0), 0b001);
     println!("--> Request: {:?}\n", cmd);
     let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;

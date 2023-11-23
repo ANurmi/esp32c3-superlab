@@ -12,5 +12,5 @@
 - Turn LED Blinker on at a set time, for a set duration, at a set frequency
 `set(id = 4, Message::D(UtcDateTime, duration_secs, frequency_hz), DevID)`
 
-- Turn RGB LED on/off
-`set(id = 5, Message::B(0/1), DevID)`
+- Toggle RGB LED on/off
+`set(id = 5, Message::B(<doesn't matter>), DevID)`
