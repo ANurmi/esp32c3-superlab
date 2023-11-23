@@ -447,7 +447,7 @@ mod app {
               },
             }
 
-            let to_write = serialize_crc_cobs(&c, &mut tx_buff);
+            let to_write = serialize_crc_cobs(&c, &mut tx_buff, false);
             tx.write_bytes(to_write).unwrap();
         }
     }

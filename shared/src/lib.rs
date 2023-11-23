@@ -51,9 +51,15 @@ pub const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
 pub fn serialize_crc_cobs<'a, T: serde::Serialize, const N: usize>(
     t: &T,
     out_buf: &'a mut [u8; N],
+    test_mode : bool,
 ) -> &'a [u8] {
     let n_ser = ssmarshal::serialize(out_buf, t).unwrap();
-    let crc = CKSUM.checksum(&out_buf[0..n_ser]);
+    let mut crc = CKSUM.checksum(&out_buf[0..n_ser]);
+    
+    if test_mode == true {
+        crc = crc + 1;
+    }
+    
     let n_crc = ssmarshal::serialize(&mut out_buf[n_ser..], &crc).unwrap();
     let buf_copy = *out_buf; // implies memcpy, could we do better?
     let n = corncobs::encode_buf(&buf_copy[0..n_ser + n_crc], out_buf);

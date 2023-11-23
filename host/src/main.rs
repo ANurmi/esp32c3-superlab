@@ -31,6 +31,9 @@ type OutBuf = [u8; OUT_SIZE];
 
 fn main() -> Result<(), std::io::Error> {
 
+    // set to 1 to enable bit flip detection test
+    let bit_flip_test : bool = false;
+
     println!("\n\nRTIC2 - Reliable Serial Communication: Host Application\n");
 
     // get current time
@@ -48,19 +51,19 @@ fn main() -> Result<(), std::io::Error> {
     // set time to current UTC time
     let cmd = Command::Set(0x1, Message::A(udt), 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);
         
     // turn off blinker right now
     let cmd = Command::Set(0x2, Message::B(0), 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);    
 
     // turn on blinker right now for set duration and frequency
     let cmd = Command::Set(0x3, Message::C(20, 10), 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);
     
     let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 23, hour: 18, minute: 35, second: 1, nanoseconds: 48 };    
@@ -68,19 +71,19 @@ fn main() -> Result<(), std::io::Error> {
     // schedule blinker for certain time for a set duration and frequency
     let cmd = Command::Set(0x4, Message::D(udt, 100, 32768), 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);
 
     // toggle RGB LED
     let cmd = Command::Set(0x5, Message::B(0), 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);
 
     // currently no use for get
     let cmd = Command::Get(0x12, 12, 0b001);
     println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf)?;
+    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
     println!("<-- Response: {:?}\n", response);
 
     Ok(())
@@ -111,9 +114,10 @@ fn request(
     port: &mut SerialPort,
     out_buf: &mut OutBuf,
     in_buf: &mut InBuf,
+    bit_flip_test: bool,
 ) -> Result<Response, std::io::Error> {
     
-    let to_write = serialize_crc_cobs(cmd, out_buf);
+    let to_write = serialize_crc_cobs(cmd, out_buf, bit_flip_test);
     let mut tx_complete : bool = false;
 
     while tx_complete == false {
