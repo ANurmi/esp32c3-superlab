@@ -162,13 +162,13 @@ mod app {
 
         let rtc = Rtc::new(peripherals.RTC_CNTL);
         
-let dt = Utc.with_ymd_and_hms(2023, 1, 1,0, 0, 0).unwrap();
+        let dt = Utc.with_ymd_and_hms(2023, 1, 1,0, 0, 0).unwrap();
 
         let epoch_millis = dt.timestamp_millis();
 
         let previous_rtc_timestamp = rtc.get_time_ms();
 
-let blink_led_config = BlinkLedConfig {
+        let blink_led_config = BlinkLedConfig {
             blink_start_time: epoch_millis + 1000,
             blink_end_time: epoch_millis + 10000,
             blink_period_millis: 300,
@@ -184,7 +184,7 @@ let blink_led_config = BlinkLedConfig {
 
         tg1_timer0.listen();
 
-let rmt = Rmt::new(
+        let rmt = Rmt::new(
             peripherals.RMT,
             80u32.MHz(),
             &mut system.peripheral_clock_control,
@@ -265,16 +265,17 @@ let rmt = Rmt::new(
               
                           let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
           
-                      let new_epoch_millis = dt.timestamp_millis();
+                          let new_epoch_millis = dt.timestamp_millis();
     
                           cx.shared.epoch_millis.lock(|epoch_millis| {
                             *epoch_millis = new_epoch_millis;
                           });
                         },
+
                         Message::B(int_val) => {
                           rprintln!("Received Set({},{},{})", id, int_val, devid);
                           if id == 2 {
-                            cx.shared.blink_led_config.lock(|config| {
+                              cx.shared.blink_led_config.lock(|config| {
                                 // Set this to zero so we stop blinking
                                 config.blink_end_time = 0;
                             });
@@ -284,10 +285,19 @@ let rmt = Rmt::new(
                             });
                           }
                         },
+
                         Message::C(duration_secs, freq_hz) => {
                           rprintln!("Received Set({},({} sec, {} Hz),{})", id, duration_secs, freq_hz, devid);
 
                             let mut time_stamp = 0;
+                            // saturate frequency at 100Hz
+                            let sat_freq_hz = {
+                              if freq_hz > 100 {
+                                100
+                              } else {
+                                freq_hz
+                              }
+                            };
 
                             //Avoid nested locks
                             cx.shared.epoch_millis.lock(|epoch_millis| {
@@ -297,22 +307,32 @@ let rmt = Rmt::new(
                             cx.shared.blink_led_config.lock(|config| {
                                 config.blink_end_time = time_stamp + ((duration_secs as i64)*1000);
                                 //TODO: this would act funny after 1 kHz
-                                config.blink_period_millis = 1000/freq_hz;
+                                config.blink_period_millis = 1000/sat_freq_hz;
                             });
                         },
+
                         Message::D(udt, duration_secs, freq_hz) => {
                           rprintln!("Received Set({}, ([year={}, month={}, day={}, hour={}, min={}, sec={}, nsec={}], {} sec, {} Hz, {})", id, udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second, udt.nanoseconds, duration_secs, freq_hz, devid);
                           let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
-          
+                          
                           let start_time = dt.timestamp_millis();
+                          // saturate frequency at 100Hz
+                          let sat_freq_hz = {
+                            if freq_hz > 100 {
+                              100
+                            } else {
+                              freq_hz
+                            }
+                          };
 
                           cx.shared.blink_led_config.lock(|config| {
                             config.blink_start_time = start_time;
                             config.blink_end_time = start_time + ((duration_secs as i64)*1000);
                             //TODO: this would act funny after 1 kHz
-                            config.blink_period_millis = 1000/freq_hz;
+                            config.blink_period_millis = 1000/sat_freq_hz;
                           });                      
-                        }
+                        },
+
                         _ => {
                           rprintln!("[ERROR] - Set Message format not recognised!");
                           rsp = Response::Illegal;
@@ -370,19 +390,23 @@ let rmt = Rmt::new(
             let mut tx_buff : OutBuf = [0; OUT_SIZE];
 
             match c {
+
               Response::SetOk => {
                 rprintln!("Sending Response::SetOk");
-
               },
+
               Response::ParseError => {
                 rprintln!("Sending Response::ParseError");
               },
+
               Response::Data(id, param, val, devid) => {
                 rprintln!("Sending Response::Data({},{},{},{}", id, param, val, devid);
               },
+
               Response::NotOK => {
                 rprintln!("Sending Response::NotOK");
               },
+              
               Response::Illegal => {
                 rprintln!("Sending Response::Illegal");
               },
