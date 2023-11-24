@@ -114,7 +114,10 @@ fn blink_on_cmd(blk_dur: u32, blk_freq: u32)-> Command {
     cmd
 }
 fn blink_sched_abs_cmd(utc_dt: &UtcDateTime, blk_dur: u32, blk_freq: u32) -> Command {
-    let cmd = Command::Set(0x4, Message::D(utc_dt, blk_dur, blk_freq), 0b001);
+
+    let tmp_utc_dt = UtcDateTime {year: utc_dt.year, month: utc_dt.month, day: utc_dt.day, hour: utc_dt.hour, minute: utc_dt.minute, second: utc_dt.second, nanoseconds: utc_dt.nanoseconds};
+
+    let cmd = Command::Set(0x4, Message::D(tmp_utc_dt, blk_dur, blk_freq), 0b001);
     cmd
 }
 fn blink_sched_rel_cmd(offset_secs: i64, blk_dur: u32, blk_freq: u32) -> Command {
