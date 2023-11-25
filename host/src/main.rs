@@ -45,63 +45,75 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut out_buf = [0u8; OUT_SIZE];
     let mut in_buf = [0u8; IN_SIZE];
-    // cast chrono object into serdes friendly object
-    //let udt : UtcDateTime = utc.into();   
 
-    // set time to current UTC time
-    let cmd = dt_set_cmd();
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
-        
-    // turn off blinker right now
-    let cmd = blink_off_cmd();
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);    
+    // COMMANDS SEQUENCE
+    // Executed once per host program invocation
+    // use true/false to enable or disable the used set of command
 
-    // turn on blinker right now for set duration and frequency
-    let cmd = blink_on_cmd(10, 3);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
+    if true { // set time to current UTC time
+        let cmd = dt_set_cmd();
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);
+    }
 
-    //let udt : UtcDateTime = UtcDateTime { year: 2023, month: 11, day: 23, hour: 18, minute: 35, second: 1, nanoseconds: 48 };    
+    if false { // turn off blinker right now
+        let cmd = blink_off_cmd();
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);  
+    }    
+  
+    if false { // turn on blinker right now for set duration and frequency
+        let cmd = blink_on_cmd(10, 3);
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);
+    }
+
+    // Test time for absolute scheduling
     let mut udt : UtcDateTime = Utc::now().into();
     udt.minute += 1;
 
-    // schedule blinker for certain time for a set duration and frequency
-    // note that this will return an illegal response if attempted before the time is set
-    let cmd = blink_sched_abs_cmd(&udt, 10, 6);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
 
-    let cmd = Command::Set(0x4, Message::D(udt, 10, 3), 0b001);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
+    if false {
+        // schedule blinker for absolute time for a set duration and frequency
+        // note that this will return an illegal response if attempted before the time is set
+        let cmd = blink_sched_abs_cmd(&udt, 10, 6);
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);
+    }
 
-    // toggle RGB LED
-    let cmd = rgb_toggle_cmd();
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
-    
+    if true { // schedule blinker for a time with relative offset to current time
+        let cmd = blink_sched_rel_cmd(5, 10, 6);
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);
+    }
 
-    // currently no use for get
-    let cmd = Command::Get(0x12, 12, 0b001);
-    println!("--> Request: {:?}\n", cmd);
-    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
-    println!("<-- Response: {:?}\n", response);
+    if true { // set state of rbg led, true->on : false->off
+        let cmd = set_rgb_on_cmd(true);
+        println!("--> Request: {:?}\n", cmd);
+        let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+        println!("<-- Response: {:?}\n", response);
+    }
+
+    //if true {    
+    //    // currently no use for get
+    //    let cmd = Command::Get(0x12, 12, 0b001);
+    //    println!("--> Request: {:?}\n", cmd);
+    //    let response = request(&cmd, &mut port, &mut out_buf, &mut in_buf, bit_flip_test)?;
+    //    println!("<-- Response: {:?}\n", response);
+    //}
 
     Ok(())
 }
 
 fn dt_set_cmd() -> Command {
     let utc : DateTime<Utc> = Utc::now();
-    let udt : UtcDateTime = utc.into();
-    let cmd = Command::Set(0x1, Message::A(udt), 0b001);
+    let udt : UtcDateTime   = utc.into();
+    let cmd : Command       = Command::Set(0x1, Message::A(udt), 0b001);
     cmd
 }
 
@@ -115,26 +127,39 @@ fn blink_on_cmd(blk_dur: u32, blk_freq: u32)-> Command {
 }
 fn blink_sched_abs_cmd(utc_dt: &UtcDateTime, blk_dur: u32, blk_freq: u32) -> Command {
 
-    let tmp_utc_dt = UtcDateTime {year: utc_dt.year, month: utc_dt.month, day: utc_dt.day, hour: utc_dt.hour, minute: utc_dt.minute, second: utc_dt.second, nanoseconds: utc_dt.nanoseconds};
+    let tmp_utc_dt = UtcDateTime {
+                                    year:           utc_dt.year, 
+                                    month:          utc_dt.month, 
+                                    day:            utc_dt.day, 
+                                    hour:           utc_dt.hour, 
+                                    minute:         utc_dt.minute, 
+                                    second:         utc_dt.second, 
+                                    nanoseconds:    utc_dt.nanoseconds
+                                };
 
     let cmd = Command::Set(0x4, Message::D(tmp_utc_dt, blk_dur, blk_freq), 0b001);
     cmd
 }
 fn blink_sched_rel_cmd(offset_secs: i64, blk_dur: u32, blk_freq: u32) -> Command {
-    let udt : UtcDateTime  = Utc::now().into();
-    let dt = Utc.with_ymd_and_hms(udt.year, udt.month, udt.day, udt.hour, udt.minute, udt.second).unwrap();
-    let epoch_millis: i64 = dt.timestamp_millis();
-    let offset: i64 = epoch_millis + offset_secs*1000;
-    let udt_new: UtcDateTime = Utc.timestamp_micros(offset).unwrap().into();
-    
-    let cmd = Command::Set(0x4, Message::D(udt_new, blk_dur, blk_freq), 0b001);
+    let udt         : UtcDateTime   = Utc::now().into();
+    let dt          : DateTime<Utc> = Utc.with_ymd_and_hms( udt.year, 
+                                                            udt.month, 
+                                                            udt.day, 
+                                                            udt.hour,
+                                                        udt.minute, 
+                                                        udt.second
+                                                    ).unwrap();
+    let epoch_millis: i64           = dt.timestamp_millis();
+    let offset      : i64           = epoch_millis + offset_secs*1000;
+    let udt_new     : UtcDateTime   = Utc.timestamp_millis_opt(offset).unwrap().into();
+    let cmd         : Command       = Command::Set(0x4, Message::D(udt_new, blk_dur, blk_freq), 0b001);
     cmd
 }
-fn rgb_toggle_cmd() -> Command {
-    let cmd = Command::Set(0x5, Message::B(0), 0b001);
+fn set_rgb_on_cmd(state: bool) -> Command {
+    let led_state: u32        = if state {1} else {0};
+    let cmd      : Command    = Command::Set(0x5, Message::B(led_state), 0b001);
     cmd
 }
-
 
 fn get_response(in_buf: &mut InBuf) -> Result<Response, ()> {
     
