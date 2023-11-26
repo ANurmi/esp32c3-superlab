@@ -1,6 +1,5 @@
 
 # RTIC2 Project
-Submission code on branch ```host_code```.
 
 To run host application located in ./host/src/main.rs, go to ./host & run ```cargo run```.
 
