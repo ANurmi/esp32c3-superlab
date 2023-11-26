@@ -3,13 +3,13 @@ use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UtcDateTime {
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    second: u32,
-    nanoseconds: u32,
+    pub year: i32,
+    pub month: u32,
+    pub day: u32,
+    pub hour: u32,
+    pub minute: u32,
+    pub second: u32,
+    pub nanoseconds: u32,
 }
 
 impl From<chrono::DateTime<Utc>> for UtcDateTime {
