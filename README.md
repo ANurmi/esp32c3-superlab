@@ -1,3 +1,22 @@
+
+# RTIC2 Project
+Submission code on branch ```host_code```.
+
+To run host application located in ./host/src/main.rs, go to ./host & run ```cargo run```.
+
+To run embedded application go to ./esp32c3 & run ```cargo embed --example serial_prototype```.
+
+The host application supports the following commands which are invoked in the ```COMMANDS SEQUENCE``` section of the main function:
+- Set current UTC time to microcontroller.
+- Turn blinker off immediately.
+- Turn blinker on immediately for set duration and frequency.
+- Schedule blinker to blink with set duration and frequency based on absolute timestamp.
+- Schedule blinker to blink with set duration and frequency based on relative timestamp.
+- Set RGB led on or off.
+
+A test for bitflip handling can be invoked by setting the ```bit_flip_test``` boolean in the main function.
+
+
 # esp32c3-rtic-tau
 
 Repository for `esp32c3-rtic-tau` demonstration and assignments.
