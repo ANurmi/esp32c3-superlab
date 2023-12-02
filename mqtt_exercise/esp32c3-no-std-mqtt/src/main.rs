@@ -12,13 +12,13 @@
 use hal::{
     clock::{ClockControl, CpuClock},
     embassy,
-    peripherals::Peripherals,
+    peripherals::{Peripherals, I2C0},
     prelude::*,
     systimer::SystemTimer,
     timer::TimerGroup,
     Rng,
     IO,
-    i2c,
+    i2c::I2C,
     Delay,
 };
 
@@ -227,6 +227,21 @@ async fn task(stack: &'static Stack<WifiDevice<'static>>) {
     }
 }
 
+#[embassy_executor::task]
+async fn print_temperature(
+    i2c: I2C<'static, I2C0>,
+    mut delay: Delay) {
+
+    let mut shtcx = shtcx::shtc3(i2c);
+
+    loop {
+        let measurement = shtcx.measure(PowerMode::NormalMode, &mut delay).unwrap();
+        println!("Temperature is {:?} degrees Celsius", measurement.temperature.as_degrees_celsius());
+        println!("Humidity is {:?}%", measurement.humidity.as_percent());
+        Timer::after(Duration::from_millis(1000)).await;
+    }
+}
+
 #[entry]
 fn main() -> ! {
     esp_println::logger::init_logger_from_env();
@@ -237,22 +252,8 @@ fn main() -> ! {
 
     let timer_group0 = TimerGroup::new(peripherals.TIMG0, &clocks);
 
-    let mut delay = Delay::new(&clocks);
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-
-    let i2c = i2c::I2C::new(
-        peripherals.I2C0,
-        io.pins.gpio10,
-        io.pins.gpio8,
-        300u32.kHz(),
-        &clocks
-    );
-
-    let mut shtcx = shtcx::shtc3(i2c);
-
-    let measurement = shtcx.measure(PowerMode::NormalMode, &mut delay).unwrap();
-
-    println!("Measurement is {:?}", measurement);
+    let delay = Delay::new(&clocks);
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);        
 
     let init = initialize(
         EspWifiInitFor::Wifi,
@@ -276,6 +277,14 @@ fn main() -> ! {
 
     let seed = 1234; // very random, very secure seed
 
+    let i2c0 = I2C::new(
+        peripherals.I2C0,
+        io.pins.gpio10,
+        io.pins.gpio8,
+        300u32.kHz(),
+        &clocks
+    );
+
     // Init network stack
     let stack = &*singleton!(Stack::new(
         wifi_interface,
@@ -289,6 +298,7 @@ fn main() -> ! {
         spawner.spawn(connection(controller)).unwrap();
         spawner.spawn(net_task(&stack)).unwrap();
         spawner.spawn(task(&stack)).unwrap();
+        spawner.spawn(print_temperature(i2c0, delay)).unwrap();
     });
 }
 
