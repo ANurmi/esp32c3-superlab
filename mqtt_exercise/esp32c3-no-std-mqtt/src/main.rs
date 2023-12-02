@@ -40,7 +40,7 @@ use embassy_net::{
 use embassy_time::{Duration, Timer};
 
 // MQTT related imports
-use mqtt_topics::{temperature_data_topic, Esp};
+use mqtt_topics::{temperature_data_topic, Esp, humidity_data_topic};
 use rust_mqtt::{
     client::{client::MqttClient, client_config::ClientConfig},
     packet::v5::reason_codes::ReasonCode,
@@ -52,8 +52,12 @@ use esp_println::println;
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
-/// Get this from the host-client application
-const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp2";
+
+// SELECT WHICH DEVICE YOU ARE PROGRAMMING BY UNCOMMENTING THE UUID BELOW
+const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp0";
+//const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp1";
+//const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp2";
+
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 macro_rules! singleton {
@@ -123,7 +127,11 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static>>) {
 
 // our "main" task
 #[embassy_executor::task]
-async fn task(stack: &'static Stack<WifiDevice<'static>>) {
+async fn task(
+    stack: &'static Stack<WifiDevice<'static>>,
+    i2c: I2C<'static, I2C0>,
+    mut delay: Delay
+) {
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
 
@@ -198,18 +206,25 @@ async fn task(stack: &'static Stack<WifiDevice<'static>>) {
             },
         }
 
+        let mut shtcx = shtcx::shtc3(i2c);
+
         loop {
+
+            let measurement = shtcx.measure(PowerMode::NormalMode, &mut delay).unwrap();
+            let temperature_celsius = measurement.temperature.as_degrees_celsius();
+            let humidity = measurement.humidity.as_percent();
+
             match client
                 .send_message(
                     temperature_data_topic(UUID, Esp::EspTarget1).as_str(),
-                    b"Hell2",
+                    &temperature_celsius.to_be_bytes() as &[u8],
                     rust_mqtt::packet::v5::publish_packet::QualityOfService::QoS0,
                     true,
                 )
                 .await
             {
                 Ok(()) => {
-                    println!("Send OK : UUID = {UUID}")
+                    println!("Send Temperature OK : UUID = {UUID}")
                 }
                 Err(mqtt_error) => match mqtt_error {
                     ReasonCode::NetworkError => {
@@ -222,23 +237,32 @@ async fn task(stack: &'static Stack<WifiDevice<'static>>) {
                     }
                 },
             }
-            Timer::after(Duration::from_millis(3000)).await;
+
+            match client
+                .send_message(
+                    humidity_data_topic(UUID, Esp::EspTarget1).as_str(),
+                    &humidity.to_be_bytes() as &[u8],
+                    rust_mqtt::packet::v5::publish_packet::QualityOfService::QoS0,
+                    true,
+                )
+                .await
+            {
+                Ok(()) => {
+                    println!("Send Humidity OK : UUID = {UUID}")
+                }
+                Err(mqtt_error) => match mqtt_error {
+                    ReasonCode::NetworkError => {
+                        println!("MQTT Network Error");
+                        continue;
+                    }
+                    _ => {
+                        println!("Other MQTT Error: {:?}", mqtt_error);
+                        continue;
+                    }
+                },
+            }
+            Timer::after(Duration::from_millis(1000)).await;
         }
-    }
-}
-
-#[embassy_executor::task]
-async fn print_temperature(
-    i2c: I2C<'static, I2C0>,
-    mut delay: Delay) {
-
-    let mut shtcx = shtcx::shtc3(i2c);
-
-    loop {
-        let measurement = shtcx.measure(PowerMode::NormalMode, &mut delay).unwrap();
-        println!("Temperature is {:?} degrees Celsius", measurement.temperature.as_degrees_celsius());
-        println!("Humidity is {:?}%", measurement.humidity.as_percent());
-        Timer::after(Duration::from_millis(1000)).await;
     }
 }
 
@@ -297,8 +321,8 @@ fn main() -> ! {
     executor.run(|spawner| {
         spawner.spawn(connection(controller)).unwrap();
         spawner.spawn(net_task(&stack)).unwrap();
-        spawner.spawn(task(&stack)).unwrap();
-        spawner.spawn(print_temperature(i2c0, delay)).unwrap();
+        spawner.spawn(task(&stack, i2c0, delay)).unwrap();
+        //spawner.spawn(print_temperature(&i2c0, delay)).unwrap();
     });
 }
 

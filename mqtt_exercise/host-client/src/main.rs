@@ -1,4 +1,4 @@
-use mqtt_topics::{temperature_data_topic, Esp};
+use mqtt_topics::{temperature_data_topic, Esp, humidity_data_topic};
 use rumqttc::{Client, MqttOptions, Packet, QoS};
 use std::error::Error;
 
@@ -21,11 +21,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         QoS::AtMostOnce,
     )?;
     client.subscribe(
+        humidity_data_topic(UUID_ESP0, Esp::EspTarget1).as_str(),
+        QoS::AtMostOnce,
+    )?;
+    client.subscribe(
         temperature_data_topic(UUID_ESP1, Esp::EspTarget1).as_str(),
         QoS::AtMostOnce,
     )?;
     client.subscribe(
+        humidity_data_topic(UUID_ESP1, Esp::EspTarget1).as_str(),
+        QoS::AtMostOnce,
+    )?;
+    client.subscribe(
         temperature_data_topic(UUID_ESP2, Esp::EspTarget1).as_str(),
+        QoS::AtMostOnce,
+    )?;
+    client.subscribe(
+        humidity_data_topic(UUID_ESP2, Esp::EspTarget1).as_str(),
         QoS::AtMostOnce,
     )?;
 
@@ -37,44 +49,67 @@ fn main() -> Result<(), Box<dyn Error>> {
             
             if publish_data.topic == temperature_data_topic(UUID_ESP0, Esp::EspTarget1).as_str() {
                 
-                let data: &[u8] = &publish_data.payload;
-
-                let presentation_data : String = temp_arr_to_str(data);
+                let data: &[u8] = &publish_data.payload;               
                 
-                println!("ESP0_temperature = {:?}", presentation_data);
-
                 let data: Result<[u8; 4], _> = data.try_into();
 
                 if let Ok(data) = data {
-                    println!("{:?}", data)
+                    println!("ESP0_temperature = {:?} degrees Celsius", f32::from_be_bytes(data));
+                }
+            }
+
+            if publish_data.topic == humidity_data_topic(UUID_ESP0, Esp::EspTarget1).as_str() {
+                
+                let data: &[u8] = &publish_data.payload;               
+                
+                let data: Result<[u8; 4], _> = data.try_into();
+
+                if let Ok(data) = data {
+                    println!("ESP0_humidity = {:?}%", f32::from_be_bytes(data));
                 }
             }
 
             if publish_data.topic == temperature_data_topic(UUID_ESP1, Esp::EspTarget1).as_str() {
                 
-                let data: &[u8] = &publish_data.payload;
-                
-                let presentation_data : String = temp_arr_to_str(data);
-                println!("ESP1_temperature = {:?}", presentation_data);
+                let data: &[u8] = &publish_data.payload;               
                 
                 let data: Result<[u8; 4], _> = data.try_into();
 
                 if let Ok(data) = data {
-                    println!("{:?}", data)
+                    println!("ESP1_temperature = {:?} degrees Celsius", f32::from_be_bytes(data));
+                }
+            }
+
+            if publish_data.topic == humidity_data_topic(UUID_ESP1, Esp::EspTarget1).as_str() {
+                
+                let data: &[u8] = &publish_data.payload;               
+                
+                let data: Result<[u8; 4], _> = data.try_into();
+
+                if let Ok(data) = data {
+                    println!("ESP1_humidity = {:?}%", f32::from_be_bytes(data));
                 }
             }
 
             if publish_data.topic == temperature_data_topic(UUID_ESP2, Esp::EspTarget1).as_str() {
                 
-                let data: &[u8] = &publish_data.payload;
-                
-                let presentation_data : String = temp_arr_to_str(data);
-                println!("ESP2_temperature = {:?}", presentation_data);
+                let data: &[u8] = &publish_data.payload;               
                 
                 let data: Result<[u8; 4], _> = data.try_into();
 
                 if let Ok(data) = data {
-                    println!("{:?}", data)
+                    println!("ESP2_temperature = {:?} degrees Celsius", f32::from_be_bytes(data));
+                }
+            }
+
+            if publish_data.topic == humidity_data_topic(UUID_ESP2, Esp::EspTarget1).as_str() {
+                
+                let data: &[u8] = &publish_data.payload;               
+                
+                let data: Result<[u8; 4], _> = data.try_into();
+
+                if let Ok(data) = data {
+                    println!("ESP2_humidity = {:?}%", f32::from_be_bytes(data));
                 }
             }
         }

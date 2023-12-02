@@ -23,6 +23,12 @@ pub fn temperature_data_topic(uuid: &str, esp: Esp) -> String<256> {
     buffer
 }
 
+pub fn humidity_data_topic(uuid: &str, esp: Esp) -> String<256> {
+    let mut buffer: String<256> = String::new();
+    write!(&mut buffer, "{}/sensor_data/humidity{:?}", uuid, esp).expect("write! failed!");
+    buffer
+}
+
 pub fn hello_topic(uuid: &str, esp: Esp) -> String<256> {
     let mut buffer: String<256> = String::new();
     write!(&mut buffer, "{}/hello_esp{:?}", uuid, esp).expect("write! failed!");
