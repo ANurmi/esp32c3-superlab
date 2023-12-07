@@ -54,8 +54,8 @@ const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
 // SELECT WHICH DEVICE YOU ARE PROGRAMMING BY UNCOMMENTING THE UUID BELOW
-//const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp0";
-const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp1";
+const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp0";
+//const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp1";
 //const UUID: &str = "16e337a0-935d-4f32-bf3c-6ded006cesp2";
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
