@@ -40,10 +40,10 @@ struct Device {
 impl Device {
 
     fn print(&self, start_time: &SystemTime) ->() {
-        println!("id = {:?},", self.id);
-        println!("uuid = {:?},", self.uuid);
-        println!("position = {:?},", self.position);
-        println!("status = {:?},", self.status);
+        println!("dev. id     = {:?},", self.id);
+        println!("uuid        = {:?},", self.uuid);
+        println!("position    = {:?},", self.position);
+        println!("status      = {:?},", self.status);
         println!("temperature = ({:.3}°C @ {:.3} secs),", 
             self.temperature.0, 
             self.temperature.1.duration_since(*start_time).unwrap().as_secs_f32()
@@ -52,7 +52,7 @@ impl Device {
             self.humidity.0, 
             self.humidity.1.duration_since(*start_time).unwrap().as_secs_f32()
         );
-        println!("valid = {:?}.\n", self.valid);
+        println!("dev. valid? = {:?}.\n", self.valid);
     }
 }
 
