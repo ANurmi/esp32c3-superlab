@@ -40,19 +40,19 @@ struct Device {
 impl Device {
 
     fn print(&self, start_time: &SystemTime) ->() {
-        println!("id = {:?}", self.id);
-        println!("uuid = {:?}", self.uuid);
-        println!("position = {:?}", self.position);
-        println!("status = {:?}", self.status);
+        println!("id = {:?},", self.id);
+        println!("uuid = {:?},", self.uuid);
+        println!("position = {:?},", self.position);
+        println!("status = {:?},", self.status);
         println!("temperature = ({:.3}°C @ {:.3} secs),", 
             self.temperature.0, 
             self.temperature.1.duration_since(*start_time).unwrap().as_secs_f32()
         );
-        println!("humidity    = ({:.3} % @ {:.3} secs)", 
+        println!("humidity    = ({:.3} % @ {:.3} secs),", 
             self.humidity.0, 
             self.humidity.1.duration_since(*start_time).unwrap().as_secs_f32()
         );
-        println!("valid = {:?}\n", self.valid);
+        println!("valid = {:?}.\n", self.valid);
     }
 }
 
@@ -278,7 +278,9 @@ fn report_system_status(
     if selected_device == usize::MAX {
         println!("[{:.3}] No valid devices!", elapsed);
     } else {
-        println!("[{:.3}] Device {} selected:", elapsed, selected_device);
+        println!("------------------------------\n [{:.3}] Device {} selected:\n------------------------------", 
+        elapsed, 
+        selected_device);
         devices[selected_device].print(start_time);
     }
 }
